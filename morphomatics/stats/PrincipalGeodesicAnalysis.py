@@ -6,7 +6,7 @@
 #   Copyright (C) 2021 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
-#       see /LICENSE                                              #
+#       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
 
@@ -39,9 +39,6 @@ class PrincipalGeodesicAnalysis(object):
             mu = Mean.compute(mfd, data)
         self._mean = mu
 
-        ################################
-        # inexact PGA, aka tangent PCA
-        ################################
 
         # map data to tangent space at mean
         v = [mfd.log(mu, x) for x in data]

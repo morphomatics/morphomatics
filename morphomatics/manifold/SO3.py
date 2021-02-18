@@ -6,7 +6,7 @@
 #   Copyright (C) 2021 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
-#       see /LICENSE                                              #
+#       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
 

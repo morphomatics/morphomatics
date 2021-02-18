@@ -6,7 +6,7 @@
 #   Copyright (C) 2021 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
-#       see /LICENSE                                              #
+#       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
 
@@ -137,8 +137,6 @@ class FundamentalCoords(ShapeSpace):
         :arg c: fundamental coords.
         :returns: #v-by-3 array of vertex coordinates
         """
-        ################################################################################################################
-        # initialization with spanning tree path #######################################################################
         C, Ulocal = self.disentangle(c)
 
         eIds = self.spanning_tree_path[:,0]
@@ -180,16 +178,12 @@ class FundamentalCoords(ShapeSpace):
         n_iter = 0
         while n_iter < self.integration_iter:
 
-        ################################################################################################################
-        # global step ##################################################################################################
 
             # setup gradient matrix and solve Poisson system
             D = np.einsum('...ij,...kj', U, R)  # <-- from left polar decomp.
             rhs = self.ref.div @ D.reshape(-1, 3)
             v = self.poisson(rhs)
 
-        ################################################################################################################
-        # local step ###################################################################################################
             if n_iter + 1 == self.integration_iter:
                 break
 
