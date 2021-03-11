@@ -39,6 +39,9 @@ class PrincipalGeodesicAnalysis(object):
             mu = Mean.compute(mfd, data)
         self._mean = mu
 
+        ################################
+        # inexact PGA, aka tangent PCA
+        ################################
 
         # map data to tangent space at mean
         v = [mfd.log(mu, x) for x in data]

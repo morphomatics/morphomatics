@@ -25,8 +25,12 @@ class RiemannianRegression(object):
     Higher-order regression for estimation of relationship between
     single explanatory and manifold-valued dependent variable.
 
-
     The relationship is modeled via intrinsic Bezier splines (morphomatics.manifold.BezierSpline).
+
+    See:
+    Martin Hanik, Hans-Christian Hege, Anja Hennemuth, Christoph von Tycowicz:
+    Nonlinear Regression on Manifolds for Shape Analysis using Intrinsic Bézier Splines.
+    Proc. Medical Image Computing and Computer Assisted Intervention (MICCAI), 2020.
     """
 
     def __init__(self, M:Manifold, Y, param, degrees, iscycle=False, P_init=None):

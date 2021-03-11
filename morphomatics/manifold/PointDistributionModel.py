@@ -82,9 +82,4 @@ class PointDistributionModel(ShapeSpace):
         return G
 
     def projToGeodesic(self, X, Y, P):
-        '''
-        :arg X, Y: manifold coords defining geodesic X->Y.
-        :arg P: manifold coords to be projected to X->Y.
-        :returns: manifold coords of projection of P to X->Y
-        '''
         return super().projToGeodesic(X, Y, P, max_iter=1)

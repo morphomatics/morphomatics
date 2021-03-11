@@ -55,7 +55,7 @@ class StatisticalShapeModel(object):
 
     def setupShapeSpace(self, surfaces, max_outer = 10, max_inner = 10):
         '''
-        Setup manifold space, i.e. determine reference manifold that agrees with mean manifold of  surfaces.
+        Setup manifold space, i.e. determine reference manifold that agrees with mean manifold of \a surfaces.
 
         :arg surfaces: list of surfaces
         :arg max_outer: max. number of interations in outer loop

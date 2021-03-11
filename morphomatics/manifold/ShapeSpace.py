@@ -47,6 +47,13 @@ class ShapeSpace(Manifold):
     @abc.abstractmethod
     def projToGeodesic(self, X, Y, P, max_iter=10):
         '''
+        Project P onto geodesic from X to Y.
+
+        See:
+        Felix Ambellan, Stefan Zachow, Christoph von Tycowicz.
+        Geodesic B-Score for Improved Assessment of Knee Osteoarthritis.
+        Proc. Information Processing in Medical Imaging (IPMI), LNCS, 2021.
+
         :arg X, Y: manifold coords defining geodesic X->Y.
         :arg P: manifold coords to be projected to X->Y.
         :returns: manifold coords of projection of P to X->Y

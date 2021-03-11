@@ -27,7 +27,14 @@ from .util import align
 
 
 class DifferentialCoords(ShapeSpace):
-    """ Shape space based on differential coordinates. """
+    """
+    Shape space based on differential coordinates.
+
+    See:
+    Christoph von Tycowicz, Felix Ambellan, Anirban Mukhopadhyay, and Stefan Zachow.
+    An Efficient Riemannian Statistical Shape Model using Differential Coordinates.
+    Medical Image Analysis, Volume 43, January 2018.
+    """
 
     def __init__(self, reference: Surface, metric_weights=(1.0, 1.0)):
         """
@@ -255,11 +262,17 @@ class DifferentialCoords(ShapeSpace):
 
     def projToGeodesic(self, X, Y, P, max_iter = 10):
         '''
-        :arg X, Y: differential coords defining geodesic X->Y.
-        :arg P: differential coords to be projected to X->Y.
-        :returns: differential coords of projection of P to X->Y
-        '''
+        Project P onto geodesic from X to Y.
 
+        See:
+        Felix Ambellan, Stefan Zachow, Christoph von Tycowicz.
+        Geodesic B-Score for Improved Assessment of Knee Osteoarthritis.
+        Proc. Information Processing in Medical Imaging (IPMI), LNCS, 2021.
+
+        :arg X, Y: manifold coords defining geodesic X->Y.
+        :arg P: manifold coords to be projected to X->Y.
+        :returns: manifold coords of projection of P to X->Y
+        '''
         assert X.shape == Y.shape
         assert Y.shape == P.shape
 

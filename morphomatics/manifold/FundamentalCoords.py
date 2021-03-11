@@ -27,7 +27,15 @@ from . import ShapeSpace
 
 
 class FundamentalCoords(ShapeSpace):
-    """ Shape space based on fundamental coordinates. """
+    """
+    Shape space based on fundamental coordinates.
+
+    See:
+    Felix Ambellan, Stefan Zachow, and Christoph von Tycowicz.
+    A Surface-Theoretic Approach for Statistical Shape Modeling.
+    Proc. Medical Image Computing and Computer Assisted Intervention (MICCAI), LNCS, 2019.
+    """
+
     def __init__(self, reference: Surface, metric_weights=(1.0, 1.0)):
         """
         :arg reference: Reference surface (shapes will be encoded as deformations thereof)
@@ -39,18 +47,19 @@ class FundamentalCoords(ShapeSpace):
         self.init_vert = int(os.getenv('FCM_INIT_VERT', 0))                    # id of fixed vertex
 
         self.integration_tol = float(os.getenv('FCM_INTEGRATION_TOL', 1e-05))  # integration tolerance local/global solver
-        self.integration_iter = int(os.getenv('FCM_INTEGRATION_ITER', 2))      # max iteration local/global solver
+        self.integration_iter = int(os.getenv('FCM_INTEGRATION_ITER', 3))      # max iteration local/global solver
 
         omega_C = float(os.getenv('FCM_WEIGHT_ROTATION', metric_weights[0]))
         omega_U = float(os.getenv('FCM_WEIGHT_STRETCH', metric_weights[1]))
         self.metric_weights = (omega_C, omega_U)
 
-        self.update_ref_geom(self.ref.v)
         self.spanning_tree_path = self.setup_spanning_tree_path()
 
         # rotation and stretch manifolds
         self.SO = SO3(int(0.5 * self.ref.inner_edges.getnnz()))        # relative rotations (transition rotations)
         self.SPD = SPD(self.ref.f.shape[0], 2)                         # stretch w.r.t. tangent space
+
+        self.update_ref_geom(self.ref.v)
 
     def __str__(self):
         return 'Fundamental Coordinates Shape Space'
@@ -83,6 +92,8 @@ class FundamentalCoords(ShapeSpace):
         # setup metric
         diag = np.concatenate((self.metric_weights[0] * np.repeat(edgeAreaFactor, 9), self.metric_weights[1] * np.repeat(faceAreaFactor, 4)), axis=None)
         self.metric = sparse.diags(diag, 0)
+
+        self._identity = self.to_coords(self.ref.v)
 
     def disentangle(self, c):
         """
@@ -137,6 +148,8 @@ class FundamentalCoords(ShapeSpace):
         :arg c: fundamental coords.
         :returns: #v-by-3 array of vertex coordinates
         """
+        ################################################################################################################
+        # initialization with spanning tree path #######################################################################
         C, Ulocal = self.disentangle(c)
 
         eIds = self.spanning_tree_path[:,0]
@@ -176,15 +189,26 @@ class FundamentalCoords(ShapeSpace):
 
         Dijk = R.copy()
         n_iter = 0
+        v = np.asarray(self.ref.v.copy())
+        vk = np.asarray(self.ref.v.copy())
+        sqrt_tol = np.sqrt(self.integration_tol)
         while n_iter < self.integration_iter:
 
+        ################################################################################################################
+        # global step ##################################################################################################
 
             # setup gradient matrix and solve Poisson system
             D = np.einsum('...ij,...kj', U, R)  # <-- from left polar decomp.
             rhs = self.ref.div @ D.reshape(-1, 3)
+            vk = v
             v = self.poisson(rhs)
+            v += self.CoG - v.mean(axis=0)
+            errCoord = np.amax(np.abs((v - vk)))
+            errCoordTol = sqrt_tol * (1.0 + np.amax(np.abs((vk))))
 
-            if n_iter + 1 == self.integration_iter:
+        ################################################################################################################
+        # local step ###################################################################################################
+            if (n_iter + 1 == self.integration_iter) or (errCoord < errCoordTol):
                 break
 
             # compute gradients again
@@ -202,20 +226,17 @@ class FundamentalCoords(ShapeSpace):
             Wijk[:, -1] = np.linalg.det(R)
             R = np.einsum('...ij,...j,...jk', Uijk, Wijk, Vtijk)
 
-            v += self.CoG - v.mean(axis=0)
-
             n_iter += 1
 
         # orient w.r.t. fixed frame and move to fixed node
         v[:] = (self.ref_frame_field[self.init_face] @ FundamentalCoords.frame_of_face(v, self.ref.f, [self.init_face]).T @ v[:].T).T
         v += self.ref.v[self.init_vert] - v[self.init_vert]
-        # print("v:
-", v)
+        # print("v:\n", v)
         return v
 
     @property
     def identity(self):
-        return np.concatenate([np.tile(np.eye(3), (int(0.5 * self.ref.inner_edges.getnnz()) , 1)).ravel(), np.tile(np.eye(2), (len(self.ref.f), 1)).ravel() ]).reshape(-1)
+        return self._identity
 
     def inner(self, X, G, H):
         """
@@ -315,9 +336,16 @@ class FundamentalCoords(ShapeSpace):
 
     def projToGeodesic(self, X, Y, P, max_iter = 10):
         '''
-        :arg X, Y: fundamental coords defining geodesic X->Y.
-        :arg P: fundamental coords to be projected to X->Y.
-        :returns: fundamental coords of projection of P to X->Y
+        Project P onto geodesic from X to Y.
+
+        See:
+        Felix Ambellan, Stefan Zachow, Christoph von Tycowicz.
+        Geodesic B-Score for Improved Assessment of Knee Osteoarthritis.
+        Proc. Information Processing in Medical Imaging (IPMI), LNCS, 2021.
+
+        :arg X, Y: manifold coords defining geodesic X->Y.
+        :arg P: manifold coords to be projected to X->Y.
+        :returns: manifold coords of projection of P to X->Y
         '''
 
         assert X.shape == Y.shape
@@ -490,3 +518,75 @@ class FundamentalCoords(ShapeSpace):
         v3 = np.cross(v1, v2)
 
         return np.column_stack((v1.T, v2.T, v3.T))
+
+    def flatCoords(self, X):
+        """
+        Project shape X isometrically to flat configuration.
+        :param X: element of the space of fundamental coordinates
+        :returns: Flattened configuration.
+        """
+        _, Ulocal = self.disentangle(X)
+
+        inner_edge = sparse.triu(self.ref.inner_edges)
+
+        C = np.zeros((self.SO.k,3,3))
+
+        for l in range(inner_edge.data.shape[0]):
+            # transition rotations are directed from triangle with lower to triangle with higher id
+            i = inner_edge.row[l]
+            j = inner_edge.col[l]
+
+            ###### calc quaternion representing rotation from nj to ni ######
+
+            ni = self.ref_frame_field[i][:, 2]
+            nj = self.ref_frame_field[j][:, 2]
+
+            lni_lnj = np.sqrt(np.dot(ni,ni)*np.dot(nj,nj))
+            qw = lni_lnj + np.dot(ni,nj)
+
+            # check for anti-parallelism of ni and nj
+            if (qw < 1.0e-7 * lni_lnj):
+                qw=0.0
+                if(np.abs(ni[0]) > np.abs(ni[2])):
+                    qxyz = np.array([ -ni[1],  ni[0], 0.0  ])
+                else:
+                    qxyz = np.array([    0.0, -ni[2], ni[1]])
+            else:
+                qxyz = np.cross(nj, ni)
+
+            # normalize quaternion
+            lq = np.sqrt(qw*qw + np.dot(qxyz, qxyz))
+            qw = qw / lq
+            qxyz = qxyz / lq
+
+            ########## get rotation matrix from (unit) quarternion ##########
+
+            Rninj = np.eye(3)
+
+            qwqw = qw * qw
+            qxqx = qxyz[0] * qxyz[0]
+            qyqy = qxyz[1] * qxyz[1]
+            qzqz = qxyz[2] * qxyz[2]
+            qxqy = qxyz[0] * qxyz[1]
+            qzqw = qxyz[2] * qw
+            qxqz = qxyz[0] * qxyz[2]
+            qyqw = qxyz[1] * qw
+            qyqz = qxyz[1] * qxyz[2]
+            qxqw = qxyz[0] * qw
+
+            Rninj[0, 0] =  qxqx - qyqy - qzqz + qwqw
+            Rninj[1, 1] = -qxqx + qyqy - qzqz + qwqw
+            Rninj[2, 2] = -qxqx - qyqy + qzqz + qwqw
+            Rninj[1, 0] = 2.0 * (qxqy + qzqw)
+            Rninj[0, 1] = 2.0 * (qxqy - qzqw)
+            Rninj[2, 0] = 2.0 * (qxqz - qyqw)
+            Rninj[0, 2] = 2.0 * (qxqz + qyqw)
+            Rninj[2, 1] = 2.0 * (qyqz + qxqw)
+            Rninj[1, 2] = 2.0 * (qyqz - qxqw)
+
+            #################################################################
+
+            # update transition rotations
+            C[inner_edge.data[l]] = self.ref_frame_field[i].T @ Rninj @ self.ref_frame_field[j]
+
+        return np.concatenate([np.ravel(C), np.ravel(Ulocal)]).reshape(-1)

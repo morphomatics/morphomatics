@@ -24,7 +24,7 @@ class Surface(object):
     def __init__(self, v, f):
         """
         :arg v: #v-by-dim array of vertex coordinate
-        :arg f: #f-by-3 array of triangles (each given as indices into  v)
+        :arg f: #f-by-3 array of triangles (each given as indices into \a v)
         """
         # cache for memoization
         self._cache_v = dict()

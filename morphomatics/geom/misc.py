@@ -34,7 +34,7 @@ def memoize(cache_name):
 def gradient_matrix_ambient(verts, cells):
     """
     Compute gradient (represented in ambient space) matrix for Lagrange basis
-    on k-manifold simplicial geom with vertices  verts and k-simplices  cells
+    on k-manifold simplicial geom with vertices \a verts and k-simplices \a cells
     :return: sparse (d*m)-by-n gradient matrix, where d is dim. of vertices,
         and m (n) is the number of triangles (vertices).
     """
@@ -61,7 +61,7 @@ def gradient_matrix_ambient(verts, cells):
 def gradient_matrix_local(verts, cells):
     """
     Compute gradient matrix for Lagrange basis on d-manifold simplicial geom
-    with vertices  verts and d-simplices  cells.
+    with vertices \a verts and d-simplices \a cells.
     Gradients will be represented in (d-dim.) local chart of each simplex.
     :return: sparse (d*m)-by-n gradient matrix, where m (n) is the number of triangles (vertices),
              and volumes of d-simplices
