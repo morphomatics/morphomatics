@@ -5,6 +5,13 @@ It contains prototype implementations of intrinsic manifold-based methods that a
 
 Detailed information and tutorials can be found at https://morphomatics.github.io/
 
+## Installation
+
+Morphomatics can be installed directly from github using the following command:
+```
+pip install git+https://github.com/morphomatics/morphomatics.git#egg=morphomatics
+```
+
 ## Dependencies
 * numpy
 * scipy
