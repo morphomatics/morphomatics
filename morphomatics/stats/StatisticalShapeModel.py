@@ -71,7 +71,7 @@ class StatisticalShapeModel(object):
         tol = mean.v.std(axis=0).mean() / 1000
         for _ in range(max_outer):
             # compute mean in manifold space
-            x = Mean.compute(space, [space.to_coords(S.v) for S in surfaces], x=space.identity if len(surfaces) < 2 else None, max_iter=max_inner)
+            x = Mean.compute(space, [space.to_coords(S.v) for S in surfaces], x=space.ref_coords if len(surfaces) > 2 else None, max_iter=max_inner)
 
             # compute vertex coordinates of mean
             v = space.from_coords(x)

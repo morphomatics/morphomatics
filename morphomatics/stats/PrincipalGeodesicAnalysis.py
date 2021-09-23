@@ -31,6 +31,7 @@ class PrincipalGeodesicAnalysis(object):
         :arg data: list of data points
         :arg mu: intrinsic mean of data
         """
+        assert mfd.connec and mfd.metric
         self.mfd = mfd
         N = len(data)
 
@@ -44,10 +45,10 @@ class PrincipalGeodesicAnalysis(object):
         ################################
 
         # map data to tangent space at mean
-        v = [mfd.log(mu, x) for x in data]
+        v = [mfd.connec.log(mu, x) for x in data]
 
         # setup dual-covariance operator / (scaled) gram matrix
-        C = mfd.inner(mu, v, v) / N
+        C = mfd.metric.inner(mu, v, v) / N #TODO: inner() does not support lists in general -> change to (parallel) for loops
 
         # decompose
         vals, vecs = np.linalg.eigh(C)
@@ -59,7 +60,7 @@ class PrincipalGeodesicAnalysis(object):
         self._modes = np.diag(1/np.sqrt(N*self._variances)) @ vecs[:,:e:-1].T @ v
 
         # determine coefficients of input surfaces
-        self._coeffs = mfd.inner(mu, v, self._modes)
+        self._coeffs = vecs[:,:e:-1] @ np.diag(np.sqrt(N*self._variances))
 
     @property
     def mean(self):

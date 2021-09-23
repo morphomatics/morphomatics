@@ -32,3 +32,37 @@ def align(src, ref):
         R = Vt.T @ np.diag([1, 1, -1]) @ U.T
     # return aligned coords.
     return src @ R + (c_r - c_s @ R)
+
+
+def preshape(v):
+    """ Center point cloud at origin and normalize its size
+    :arg v: n-by-3 array of vertex coordinates
+    :returns: n-by-3 array of adjusted vertex coordinates
+    """
+    # center
+    v -= 1 / v.shape[0] * np.tile(np.sum(v, axis=0), (v.shape[0], 1))
+    # normalize
+    v /= np.linalg.norm(v)
+    return v
+
+
+def vectime3d(x, A):
+    """
+    :param x: vector of length k
+    :param A: array of size k x n x m
+    :return: k x n x m array such that the j-th n x m slice of A is multiplied with the j-th element of x
+
+    In case of k=1, x * A is returned.
+    """
+    if np.isscalar(x) and A.ndim == 2:
+        return x * A
+
+    x = np.atleast_2d(x)
+    assert x.ndim <= 2 and np.size(A.shape) == 3
+    assert x.shape[0] == 1 or x.shape[1] == 1
+    assert x.shape[0] == A.shape[0] or x.shape[1] == A.shape[0]
+
+    if x.shape[1] == 1:
+        x = x.T
+    A = np.einsum('kij->ijk', A)
+    return np.einsum('ijk->kij', x * A)

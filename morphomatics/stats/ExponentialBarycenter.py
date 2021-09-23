@@ -12,10 +12,14 @@
 
 
 import numpy as np
+from joblib import Parallel, delayed
+from joblib import parallel_backend
 
-from pymanopt.manifolds.manifold import Manifold
+
+from morphomatics.manifold import Manifold
 #from pymanopt.solvers import SteepestDescent
 #from pymanopt import Problem
+
 
 class ExponentialBarycenter(object):
     """
@@ -27,31 +31,38 @@ class ExponentialBarycenter(object):
     """
 
     @staticmethod
-    def compute(mfd: Manifold, data, x=None, max_iter=10):
+    def compute(mfd: Manifold, data, x=None, max_iter=10, n_jobs=-1):
         """
         :arg mfd: data space in which mean is computed
         :arg data: list of data points
         :arg x: initial guess
         :returns: mean of data, i.e. exp. barycenter thereof
         """
+        assert mfd.connec
+
         # initial guess
         if x is None:
             x = data[0].copy() #TODO: better guess -> choose most central sample
 
         # compute intrinsic mean
-        cost = lambda a: 0.5 / len(data) * np.sum([mfd.dist(a, b) ** 2 for b in data])
-        grad = lambda a: np.sum([mfd.log(a, b) for b in data], axis=0) / len(data)
+        #cost = lambda a: 0.5 / len(data) * np.sum([mfd.dist(a, b) ** 2 for b in data])
+        #grad = lambda a: np.sum([mfd.log(a, b) for b in data], axis=0) / len(data)
         # hess = lambda a, b: b
         # problem = Problem(manifold=mfd, cost=cost, grad=grad, hess=hess, verbosity=2)
         # x = SteepestDescent(maxiter=max_iter).solve(problem, x=x)
 
-        # Gauss-Newton type solver
-        for _ in range(max_iter):
-            g = grad(x)
-            g_norm = mfd.norm(x, -g)
-            print(f'|grad|={g_norm}')
-            if g_norm < 1e-6: break
-            x = mfd.exp(x, g)
+        # Newton-type fixed point iteration
+        with Parallel(n_jobs=n_jobs, prefer='threads', verbose=10) as parallel:
+            grad = lambda a: np.sum(parallel(delayed(mfd.connec.log)(a, b) for b in data), axis=0) / len(data)
+            for _ in range(max_iter):
+                g = grad(x)
+                if mfd.metric:
+                    g_norm = mfd.metric.norm(x, -g)
+                else:
+                    g_norm = np.linalg.norm(-g)
+                print(f'|grad|={g_norm}')
+                if g_norm < 1e-12: break
+                x = mfd.connec.exp(x, g)
 
         return x
 
@@ -63,7 +74,9 @@ class ExponentialBarycenter(object):
         :arg x: center
         :returns: total variance
         """
+        assert mfd.connec and mfd.metric
+
         if x is None:
             x = ExponentialBarycenter.compute(mfd, data)
 
-        return np.sum([mfd.dist(x, y) ** 2 for y in data]) / len(data)
+        return np.sum([mfd.metric.dist(x, y) ** 2 for y in data]) / len(data)

@@ -26,6 +26,7 @@ setup(
           'numpy',
           'scipy',
           'pymanopt',
+          'joblib',
           'pyvista>=0.25',
           'pyvistaqt'
       ],

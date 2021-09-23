@@ -13,12 +13,15 @@
 import numpy as np
 from morphomatics.geom import BezierSpline
 from morphomatics.geom.BezierSpline import decasteljau
-from morphomatics.stats.ExponentialBarycenter import ExponentialBarycenter
+from morphomatics.stats import ExponentialBarycenter
 
-from pymanopt.manifolds.manifold import Manifold
+from morphomatics.manifold import Manifold
+from morphomatics.manifold.ManoptWrap import ManoptWrap
 from pymanopt import Problem
 from pymanopt.manifolds import Product
-from pymanopt.solvers import SteepestDescent
+from pymanopt.manifolds.product import _ProductTangentVector
+from pymanopt.solvers import SteepestDescent, ConjugateGradient
+
 
 class RiemannianRegression(object):
     """
@@ -33,7 +36,8 @@ class RiemannianRegression(object):
     Proc. Medical Image Computing and Computer Assisted Intervention (MICCAI), 2020.
     """
 
-    def __init__(self, M:Manifold, Y, param, degrees, iscycle=False, P_init=None):
+    def __init__(self, M: Manifold, Y, param, degrees, iscycle=False, P_init=None, verbosity=2, maxtime=100000,
+                 maxiter=100, mingradnorm=1e-6, minstepsize=1e-10, maxcostevals=5000):
         """Compute regression with Bézier splines for data in a manifold M using pymanopt.
 
         :param M: manifold
@@ -44,10 +48,23 @@ class RiemannianRegression(object):
         be positive. For a closed spline, L > 1, degrees[0] > 2 and degrees[-1] > 2 must hold.
         :param iscycle: boolean that determines whether a closed curve C1 spline shall be modeled.
         :param P_init: initial guess
+        :param verbosity: 0 is silent to gives the most information, see pymanopt's problem class
+
+        :param maxtime: maximum time for steepest descent
+        :param maxiter: maximum number of iterations in steepest descent
+        :param mingradnorm: stop iteration when the norm of the gradient is lower than mingradnorm
+        :param minstepsize: stop iteration when step the stepsize is smaller than minstepsize
+        :param maxcostevals: maximum number of allowed cost evaluations
 
         :return P: list of control points of the optimal Bézier spline
         """
         degrees = np.atleast_1d(degrees)
+
+        self._M = M
+        self._Y = Y
+        self._param = param
+
+        pymanoptM = ManoptWrap(M)
 
         # Cost
         def cost(P):
@@ -56,6 +73,9 @@ class RiemannianRegression(object):
 
             return self.sumOfSquared(BezierSpline(M, control_points, iscycle=iscycle), Y, param)
 
+
+        #MMM = Product([M for i in range(degrees[0])]) # for conjugated gradient
+
         # Gradient
         def grad(P):
             P = np.stack(P)
@@ -63,26 +83,33 @@ class RiemannianRegression(object):
             grad_E = self.gradSumOfSquared(BezierSpline(M, control_points, iscycle=iscycle), Y, param)
             grad_E = self.indep_set(grad_E, iscycle)
 
+            # return _ProductTangentVector([grad_E[0][i] for i in range(len(grad_E[0]))]) # for conjugated gradient
             return np.concatenate(grad_E)
+            # return [grad_E[0][i] for i in range(len(grad_E[0]))]
 
         # Solve optimization problem with pymanopt by optimizing over independent control points
         if iscycle:
-            N = Product([M] * np.sum(degrees - 1))
+            N = Product([pymanoptM] * np.sum(degrees - 1))
         else:
-            N = Product([M] * (np.sum(degrees - 1) + 2))
+            N = Product([pymanoptM] * (np.sum(degrees - 1) + 2))
 
-        problem = Problem(manifold=N, cost=cost, grad=grad)
+        problem = Problem(manifold=N, cost=cost, grad=grad, verbosity=verbosity)
 
-        solver = SteepestDescent(maxtime=100000)
+        # solver = ConjugateGradient(maxtime=maxtime, maxiter=maxiter, mingradnorm=mingradnorm,
+        #                            minstepsize=minstepsize, maxcostevals=maxcostevals, logverbosity=2)
+
+        solver = SteepestDescent(maxtime=maxtime, maxiter=maxiter, mingradnorm=mingradnorm,
+                                 minstepsize=minstepsize, maxcostevals=maxcostevals, logverbosity=2)
 
         if P_init is None:
             P_init = self.initControlPoints(M, Y, param, degrees, iscycle)
         P_init = self.indep_set(P_init, iscycle)
 
-        P_opt = solver.solve(problem, list(np.concatenate(P_init)))
+        P_opt, opt_log = solver.solve(problem, list(np.concatenate(P_init)))
         P_opt = self.full_set(M, np.stack(P_opt, axis=0), degrees, iscycle)
 
         self._spline = BezierSpline(M, P_opt)
+        self._unexplained_variance = opt_log['final_values']["f(x)"] / len(Y)
 
     @property
     def trend(self):
@@ -92,8 +119,26 @@ class RiemannianRegression(object):
         """
         return self._spline
 
+    def unexplained_variance(self):
+        """Variance in the data set that is not explained by the regressed Bézier spline.
+        """
+        return self._unexplained_variance
+
+    @property
+    def R2statistic(self):
+        """ Computes Fletcher's generalized R2 statistic for Bézier spline regression. For the definition see
+                        Fletcher, Geodesic Regression on Riemannian Manifolds (2011), Eq. 7.
+
+        :return: generalized R^2 statistic (in [0, 1])
+        """
+
+        # total variance
+        total_var = ExponentialBarycenter.total_variance(self._M, list(self._Y))
+
+        return 1 - self.unexplained_variance() / total_var
+
     @staticmethod
-    def initControlPoints(M, Y, param, degrees, iscycle=False):
+    def initControlPoints(M: Manifold, Y, param, degrees, iscycle=False):
         """Computes an initial choice of control points for the gradient descent steps in non-cyclic Bézier spline
         regression.
         The control points are initialized "along geodesics" near the data
@@ -110,9 +155,11 @@ class RiemannianRegression(object):
         :return P: list of length L containing arrays of control points. The l-th entry is an
                array with degrees(l)+1 elements of M, that are ordered along the first dimension.
         """
+        assert M.metric and M.connec
         degrees = np.atleast_1d(degrees)
         assert all(degrees >= 1)
         if iscycle:
+            # check for minimum number of control points
             assert degrees.size > 1 and degrees[0] >= 3 and degrees[-1] >= 3
 
         # sort data
@@ -133,27 +180,27 @@ class RiemannianRegression(object):
             # first segment
             if l == 0:
                 for i in range(0, d + 1):
-                    Pl[i] = M.geopoint(data[0][0], data[0][-1], i / d)
+                    Pl[i] = M.connec.geopoint(data[0][0], data[0][-1], i / d)
 
             # initial values for the control points of the remaining segments
             else:
                 # C^1 condition
-                Pl[0] = P[l-1][-1]
-                Pl[1] = M.geopoint(P[l-1][-2], P[l-1][-1], 2)
+                Pl[0] = P[l - 1][-1]
+                Pl[1] = M.connec.geopoint(P[l - 1][-2], P[l - 1][-1], 2)
                 # If there are remaining control points, they are free; we initialize them along a geodesic.
                 if d > 1:
                     if l != degrees.size - 1 or not iscycle:
                         for i in range(2, d + 1):
-                            Pl[i] = M.geopoint(Pl[1], data[l][-1], i / d)
+                            Pl[i] = M.connec.geopoint(Pl[1], data[l][-1], i / d)
                     # last segment of closed spline
                     else:
                         # C^1 condition
                         Pl[-1] = P[0][0]
-                        Pl[-2] = M.geopoint(P[0][1], P[0][0], 2)
+                        Pl[-2] = M.connec.geopoint(P[0][1], P[0][0], 2)
                         # d-3 free control points
                         for i in range(2, d - 1):
                             # on geodesic between neighbours
-                            Pl[i] = M.geopoint(Pl[1], Pl[-2], (i - 1) / (d - 2))
+                            Pl[i] = M.connec.geopoint(Pl[1], Pl[-2], (i - 1) / (d - 2))
 
             P.append(Pl)
 
@@ -170,12 +217,12 @@ class RiemannianRegression(object):
         """
         s = 0
         for i, t in enumerate(param):
-            s += B._M.dist(B.eval(t), Y[i])**2
+            s += B._M.metric.dist(B.eval(t), Y[i]) ** 2
 
         return s
 
     @staticmethod
-    def gradSumOfSquared(B : BezierSpline, Y, param):
+    def gradSumOfSquared(B: BezierSpline, Y, param):
         """Compute the gradient of the sum of squared distances from a manifold-valued Bézier spline to time labeled data
         points.
         :param B: Bézier spline with K segments
@@ -209,11 +256,11 @@ class RiemannianRegression(object):
         for t in u:
             # First, we sum up all gradients of tau_j(p) = d(p,y_j)^2 that live in the same tangent space; the value t
             # appears count[i] times.
-            grad_dist = np.zeros_like(Y[0])   # would be cleaner with M.zerovec(decasteljau(M, P[ind], t_seg))
+            grad_dist = np.zeros_like(Y[0])  # would be cleaner with M.zerovec(decasteljau(M, P[ind], t_seg))
 
             ind, t_seg = B.segmentize(t)
             for jj in np.nonzero(param == t)[0]:
-                grad_dist += -2 * M.log(decasteljau(M, P[ind], t_seg), Y[jj])
+                grad_dist += -2 * M.connec.log(decasteljau(M, P[ind], t_seg), Y[jj])
 
             # add up adjointly transported contributions
             grad_E[ind] += B.adjDpB(t, grad_dist)
@@ -221,8 +268,8 @@ class RiemannianRegression(object):
         # Taking care of C1 conditions
         for l in range(1, L):
             X_plus = grad_E[l][1]  # gradient w.r.t. p_l^+
-            X_l = M.adjDxgeo(P[l][0], P[l][1], 1, X_plus)
-            X_minus = M.adjDxgeo(P[l - 1][-2], P[l][1], 1, X_plus)
+            X_l = M.connec.adjDxgeo(P[l][0], P[l][1], 1, X_plus)
+            X_minus = M.connec.adjDxgeo(P[l - 1][-2], P[l][1], 1, X_plus)
 
             # Final gradients at p_l and p_l^-
             grad_E[l - 1][-1] += grad_E[l][0] + X_l
@@ -236,8 +283,8 @@ class RiemannianRegression(object):
         # Taking care for additional C1 conditions in the case of a closed curve.
         if B.iscycle:
             X_plus = grad_E[0][1]  # gradient w.r.t. p_0^+
-            X_l = M.adjDxgeo(P[0][0], P[0][1], 1, X_plus)
-            X_minus = M.adjDxgeo(P[-1][-2], P[0][1], 1, X_plus)
+            X_l = M.connec.adjDxgeo(P[0][0], P[0][1], 1, X_plus)
+            X_minus = M.connec.adjDxgeo(P[-1][-2], P[0][1], 1, X_plus)
 
             # Final gradients at p_l and p_l^-
             grad_E[-1][-1] += grad_E[0][0] + X_l
@@ -249,37 +296,6 @@ class RiemannianRegression(object):
             grad_E[0][1] *= 0
 
         return grad_E
-
-    @staticmethod
-    def R2statistic(B: BezierSpline, Y, param):
-        """ Computes Fletcher's generalized R2 statistic for Bézier spline regression. For the definition see
-                        Fletcher, Geodesic Regression on Riemannian Manifolds (2011), Eq. 7.
-
-        :param B: Bezier spline in a manifold M
-        :param Y: data points in M
-        :param param: vector with parameter values that correspond to the data points
-        :return: generalized R^2 statistic (in [0, 1])
-        """
-        # TODO: testing
-        assert Y.shape[0] == param.shape[0]
-        assert all(0 <= param) and all(param <= B.nsegments)
-
-        M = B._M
-
-        N = Y.shape[0]
-        unexplained_var = 0
-        # sum of squared distances
-        for i, t in enumerate(param):
-            unexplained_var += M.dist(B.eval(t), Y[i])**2
-
-        # unexplained variance
-        unexplained_var /= N
-
-        # total variance
-        E = ExponentialBarycenter()
-        total_var = E.total_variance(M, list(Y))
-
-        return 1 - unexplained_var / total_var
 
     @staticmethod
     def segments_from_data(Y, param):
@@ -342,7 +358,7 @@ class RiemannianRegression(object):
                     siz[0] = deg + 1
                     C = np.zeros(siz)
                     C[0] = P[-1]
-                    C[1] = M.geopoint(P[-2], P[-1], 2)
+                    C[1] = M.connec.geopoint(P[-2], P[-1], 2)
                     C[2:] = P[:deg - 1]
 
                     control_points.append(C)
@@ -352,7 +368,7 @@ class RiemannianRegression(object):
                 siz[0] = deg + 1
                 C = np.zeros(siz)
                 C[0] = control_points[-1][-1]
-                C[1] = M.geopoint(control_points[-1][-2], control_points[-1][-1], 2)
+                C[1] = M.connec.geopoint(control_points[-1][-2], control_points[-1][-1], 2)
                 C[2:] = P[start:start + deg - 1]
 
                 control_points.append(C)

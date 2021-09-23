@@ -11,13 +11,11 @@
 ################################################################################
 
 import numpy as np
-from pymanopt.manifolds.manifold import Manifold
-
 
 class BezierSpline:
     """Manifold-valued spline that consists of Bézier curves"""
 
-    def __init__(self, M: Manifold, control_points, iscycle=False):
+    def __init__(self, M, control_points, iscycle=False):
         """
         :arg M: manifold in which the curve lies
         :arg control_points: list of arrays of control points of the Bézier spline sorted along the first axis. The l-th
@@ -42,37 +40,28 @@ class BezierSpline:
 
     @property
     def degrees(self):
-        """Returns the deegres of the spline segments."""
+        """Returns the degrees of the spline segments."""
         K = len(self.control_points)
         n_seg = np.zeros(K, dtype=int)
         for i in range(K):
             n_seg[i] = np.shape(self.control_points[i])[0] - 1
         return n_seg
 
-    @property
     def length(self):
         # TODO
         return
 
-    @property
     def energy(self):
         # TODO
         return
 
-    def isc1(self):
-        # TODO: check C1 conditions approximately
-        return
-
-    def geoshaped(self):
-        return  # TODO: test whether self is actually a (reparametrized) geodesic (unit tangent parallel transported?)
-
     def Mgeopoint(self, p, q, t):
         """Evaluates the geodesic from p to q at time t in [0,1].
         Some manifolds allow faster implementations than this generic one; e.g., Sym+."""
-        return self._M.exp(p, self._M.log(p, q) * t)
+        return self._M.connec.exp(p, self._M.connec.log(p, q) * t)
 
     def eval(self, time=np.linspace(0, 1, 100)):
-        """Evaluates the Bézier spline at one ore more points."""
+        """Evaluates the Bézier spline at one or more points."""
         time = np.atleast_1d(time)
         # Spline is defined for t in [0, nsegments]
         assert all(0 <= time) and all(time <= self.nsegments)
@@ -88,10 +77,6 @@ class BezierSpline:
             Q[i] = decasteljau(self._M, P, t)
 
         return Q if l > 1 else Q[0]
-
-    def tangent_vector(self, time=0):
-        # TODO:  calculate tangent vectors at curve
-        return
 
     def adjDpB(self, t, X):
         """Compute the value of the adjoint derivative of a Bézier curve B with respect to its control points applied
@@ -137,9 +122,9 @@ class BezierSpline:
             D_tilde = np.zeros(siz)
             for jj in range(siz[0] // 2):
                 # transport to starting point of the geodesic
-                D_tilde[2 * jj] = M.adjDxgeo(B[i][jj], B[i][jj + 1], t, D_old[jj])
+                D_tilde[2 * jj] = M.connec.adjDxgeo(B[i][jj], B[i][jj + 1], t, D_old[jj])
                 # and to the endpoint
-                D_tilde[2 * jj + 1] = M.adjDygeo(B[i][jj], B[i][jj + 1], t, D_old[jj])
+                D_tilde[2 * jj + 1] = M.connec.adjDygeo(B[i][jj], B[i][jj + 1], t, D_old[jj])
 
             D[i][0] = D_tilde[0]
             D[i][-1] = D_tilde[-1]
@@ -171,7 +156,7 @@ class BezierSpline:
         return ind, t
 
 
-def decasteljau(M : Manifold, P, t, return_intermediate=False):
+def decasteljau(M, P, t, return_intermediate=False):
     """Generalized de Casteljau algorithm
     :param M: manifold
     :param P: control points
@@ -187,13 +172,32 @@ def decasteljau(M : Manifold, P, t, return_intermediate=False):
         Bl = np.zeros(size)
         for i in range(size[0]):
             # B[i] = self.geopoint(A[..., i], A[..., i + 1], t)
-            Bl[i] = M.exp(A[i], M.log(A[i], A[i + 1]) * t)
+            Bl[i] = M.connec.exp(A[i], M.connec.log(A[i], A[i + 1]) * t)
         return Bl
 
     # number of control points
     k = len(P)
     B = [np.array(P)]
 
+    # easy cases
+    if t == 0:
+        if return_intermediate:
+            for l in range(1, k-1):
+                # do not take uppermost control point
+                B.append(P[:-l])
+            return P[0], B
+        else:
+            return P[0]
+    elif t == 1:
+        if return_intermediate:
+            for l in range(1, k-1):
+                # do not take lowermost control point
+                B.append(P[l:])
+            return P[-1], B
+        else:
+            return P[-1]
+
+    # computations are neccessary
     for l in range(k - 1):
         P = single_layer(P, t)
         B.append(P)
