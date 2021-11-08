@@ -15,7 +15,8 @@ from setuptools import setup
 setup(
   name = 'morphomatics',
   packages = ['morphomatics', 'morphomatics.geom', 'morphomatics.manifold', 'morphomatics.stats'],
-  version = '0.1',
+  version = '1.0',
+  version_name = 'Curious Ceasar',
   license='ZIB Academic License',
   description = 'Geometric morphometrics in non-Euclidean shape spaces',
   author = 'Christoph von Tycowicz et al.',
@@ -36,8 +37,8 @@ setup(
     'Topic :: Software Development :: Build Tools',
     'License :: ZIB Academic License',
     'Programming Language :: Python :: 3',
-    'Programming Language :: Python :: 3.4',
-    'Programming Language :: Python :: 3.5',
     'Programming Language :: Python :: 3.6',
+    'Programming Language :: Python :: 3.7',
+    'Programming Language :: Python :: 3.8',
   ],
 )
