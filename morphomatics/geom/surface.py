@@ -141,7 +141,7 @@ class Surface(object):
          and three (n_3) neighbors.
          """
         # neighbors per face
-        neighs = np.asarray(np.split(self.inner_edges.indices, self.inner_edges.indptr[1:-1]))
+        neighs = np.asarray(np.split(self.inner_edges.indices, self.inner_edges.indptr[1:-1]), dtype=object)
         nNeighs = np.asarray(list(map(np.shape, neighs))).ravel()
 
         idx_1 = (nNeighs == 1)
