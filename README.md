@@ -1,3 +1,7 @@
+<div align="center">
+<img src="https://github.com/morphomatics/morphomatics.github.io/blob/master/images/logo_cyan.png?raw=true" width="250" alt="Morphomatics"/>
+</div>
+
 # Morphomatics: Geometric morphometrics in non-Euclidean shape spaces
 
 Morphomatics is an open-source Python library for (statistical) shape analysis developed within the [geometric data analysis and processing](https://www.zib.de/visual/geometric-data-analysis-and-processing) research group at Zuse Institute Berlin.
@@ -15,6 +19,7 @@ pip install git+https://github.com/morphomatics/morphomatics.git#egg=morphomatic
 ## Dependencies
 * numpy
 * scipy
+* joblib
 * pymanopt
 
 Optional
