@@ -21,6 +21,7 @@ from pymanopt.tools.multi import multiskew
 
 from morphomatics.manifold.util import vectime3d
 
+
 class SO3(Manifold):
     """Returns the product manifold SO(3)^k, i.e., a product of k rotations in 3 dimensional space.
 
@@ -123,10 +124,6 @@ class SO3(Manifold):
             return multiskew(np.einsum('...ij,...kj', X, H))
 
         egrad2rgrad = proj
-
-        def lefttrans(self, R, X):
-            """Left-translation of X to the tangent space at R"""
-            return np.einsum('...ij,...jk', R, X)
 
         def ehess2rhess(self, p, G, H, X):
             """Converts the Euclidean gradient G and Hessian H of a function at
@@ -246,6 +243,9 @@ class SO3(Manifold):
             k = self._M.k
 
             V = self.log(R, Q)
+            nor_v = np.linalg.norm(V, ord='fro', axis=(1, 2))
+            # normalize V
+            V = vectime3d(nor_v, V)
 
             # (number of faces) x (number of basis elements) x 3 x 3
             F = np.zeros((k, 3, 3, 3))
@@ -285,9 +285,6 @@ class SO3(Manifold):
         def jacop(self, R, Q, X):
             """ Evaluate the Jacobi operator along the geodesic from R to Q at r.
 
-            For the definition of the Jacobi operator see:
-                Rentmeesters, Algorithms for data fitting on some common homogeneous spaces, p. 74.
-
             :param R: element of SO(3)^k
             :param Q: element of SO(3)^k
             :param X: tangent vector at R
@@ -296,6 +293,10 @@ class SO3(Manifold):
             assert R.shape == Q.shape == X.shape
 
             V = self.log(R, Q)
+            # normalize tangent vectors
+            for v in V:
+                v = v / np.linalg.norm(v)
+
             return 1 / 4 * (-np.einsum('...ij,...jk,...kl', V, V, X) + 2 * np.einsum('...ij,...jk,...kl', V, X, V)
                             - np.einsum('...ij,...jk,...kl', X, V, V))
 
@@ -380,21 +381,14 @@ class SO3(Manifold):
 
                 return multiskew(np.sum(F, axis=1))
 
-        def adjDxgeo(self, R, Q, t, X):
-            """Evaluates the adjoint of the differential of the geodesic gamma from R to Q w.r.t the starting point R at X,
-            i.e, the adjoint  of d_R gamma(t; ., Q) applied to X, which is en element of the tangent space at R.
+        def lefttrans(self, R, Q):
+            """Left-translation of R by Q"""
+            return np.einsum('...ij,...jk', Q, R)
+
+        def righttrans(self, R, Q):
+            """Right translation of R by Q.
             """
-            assert R.shape == Q.shape == X.shape and np.isscalar(t)
-
-            return self.adjJacobi(R, Q, t, X)
-
-        def adjDygeo(self, R, Q, t, X):
-            """Evaluates the adjoint of the differential of the geodesic gamma from R to Q w.r.t the endpoint Q at X,
-            i.e, the adjoint  of d_Q gamma(t; R, .) applied to X, which is en element of the tangent space at Q.
-            """
-            assert R.shape == Q.shape == X.shape and np.isscalar(t)
-
-            return self.adjJacobi(Q, R, 1 - t, X)
+            return np.einsum('...ij,...jk', R, Q)
 
         def dleft(self, f, X):
             """Derivative of the left translation by f at e applied to the tangent vector X.
@@ -413,11 +407,6 @@ class SO3(Manifold):
 
         def dright_inv(self, f, X):
             """Derivative of the right translation by f^{-1} at f applied to the tangent vector X.
-            """
-            return None
-
-        def righttrans(self, g, f):
-            """Right translation of g by f.
             """
             return None
 

@@ -28,7 +28,10 @@ from ..geom.BezierSpline import BezierSpline
 
 
 class Bezierfold(Manifold):
-    """Manifold of Bézier curves (of fixed degree)"""
+    """Manifold of Bézier curves (of fixed degree)
+
+    Only for single-segment curves for now.
+    """
 
     def __init__(self, M: Manifold, degree):
         """
@@ -42,10 +45,8 @@ class Bezierfold(Manifold):
 
         self._degree = degree
 
-        name = 'Manifold of Bézier curves of degree {d} through '.format(d=degree) # + M.__str__
+        name = 'Manifold of Bézier curves of degree {d} through '.format(d=degree)+M.__str__
         K = np.sum(self._degree) - 1
-        # if self.iscycle:
-        #     k -= 1
         dimension = K * M.dim
         point_shape = [K, M.point_shape]
         super().__init__(name, dimension, point_shape)
@@ -64,11 +65,8 @@ class Bezierfold(Manifold):
         :return: inner product of X and Y at B
         """
         assert bet.degrees == self._degree
-
-        def integrand(t: float, bet: BezierSpline, X, Y):
-            return self._M.metric.inner(bet.eval(t), X(t), Y(t))
-
-        return integrate.quad(integrand, 0, 1, args=(bet, X, Y))[0]
+        # TODO
+        return
 
     def norm(self, bet, X):
         """Norm of tangent vectors induced by the functional-based metric
@@ -132,12 +130,15 @@ class Bezierfold(Manifold):
             m = np.array(alp.control_points[0].shape)
             m[0] = self._degree + 1
             H = [alp]
+            # logs between corresponding control points
+            X = np.zeros(m)
+            for j in range(self._degree + 1):
+                X[j] = self._M.connec.log(alp.control_points[0][j], bet.control_points[0][j])
             # initialize control points along geodesics
             for i in range(1, n):
                 P = np.zeros(m)
                 for j in range(self._degree + 1):
-                    X = self._M.connec.log(alp.control_points[0][j], bet.control_points[0][j])
-                    P[j] = self._M.connec.exp(alp.control_points[0][j], i / n * X)
+                    P[j] = self._M.connec.exp(alp.control_points[0][j], i / n * X[j])
 
                 H.append(BezierSpline(self._M, [P]))
 
@@ -148,11 +149,11 @@ class Bezierfold(Manifold):
         # initialize path
         H = init_disc_curve(alp, bet, n)
 
-        Eold = 10
-        Enew = 1
+        Eold = self.disc_path_energy(H)
+        Enew = self.disc_path_energy(H)
         step = 0
         # optimize path
-        while np.abs(Enew - Eold) > eps and step < nsteps:
+        while (np.abs(Enew - Eold) > eps and step < nsteps) or step == 0:
             step += 1
             Eold = Enew
             H_old = copy.deepcopy(H)
@@ -165,14 +166,15 @@ class Bezierfold(Manifold):
                 h2 = H[i + 1].eval(t)
                 Y = np.concatenate((h1, h2))
 
-                regression = RiemannianRegression(self._M, Y, double_t, self._degree, verbosity=0)
+                regression = RiemannianRegression(self._M, Y, double_t, self._degree, verbosity=11*verbosity)
 
                 H[i] = regression.trend
+
             Enew = self.disc_path_energy(H)
 
             # check whether energy has increased
             if Enew > Eold:
-                print('Stopped because the energy increased.')
+                print('Stopped computing discrete geodesic because the energy increased in step '+str(step)+'.')
                 return H_old
 
             if np.isnan(Enew):
@@ -181,25 +183,40 @@ class Bezierfold(Manifold):
                 print('Had to repeat because of Nan-value.')
             else:
                 if verbosity:
-                    print('Step', step, 'Energy:', Enew, 'Enew - Eold:', Enew - Eold)
+                    print('Disc-Geo-Step', step, 'Energy:', Enew, 'Enew - Eold:', Enew - Eold)
 
         return H
+
+    def loc_dist(self, alp: BezierSpline, bet: BezierSpline, t=np.array([0, 1 / 2, 1])):
+        """ Evaluate distance between two Bézier curves in M at several points
+
+        :param alp: Bézier curve
+        :param bet: Bézier curve
+        :param t: vector with elements in [0,1]
+
+        :return: vector with point-wise distances
+        """
+        a_val = alp.eval(t)
+        b_val = bet.eval(t)
+        d_M = []
+        for i in range(len(t)):
+            d_M.append(self._M.metric.dist(a_val[i], b_val[i]))
+        return np.array(d_M), t
 
     def disc_path_energy(self, H):
         """Discrete path energy
 
-        :arg H: discrete path given as ordered list of Bézier curves of the same degree
+        :param H: discrete path given as ordered list of Bézier curves of the same degree
         :return: energy of H
         """
+        # test ¨regression-conform¨ distance
+        t = np.linspace(0, 1, num=self._degree + 1)
+        d = 0
+        for i in range(len(H) - 1):
+            dh, _ = self.loc_dist(H[i], H[i + 1], t)
+            d += np.sum(dh**2, axis=0)
 
-        def integrand(t: float, bet1: BezierSpline, bet2: BezierSpline):
-            return self._M.metric.dist(bet1.eval(t), bet2.eval(t)) ** 2
-
-        E = 0
-        for i, bet in enumerate(H[:-1]):
-            E += integrate.quad(integrand, 0, 1, args=(bet, H[i + 1]))[0]
-
-        return len(H) * E
+        return d
 
     def rand(self):
         # TODO
@@ -222,22 +239,20 @@ class Bezierfold(Manifold):
         return
 
     def dist(self, alp, bet, l=5):
-        """Compute the distance betwen two Bézier splines
+        """Approximate the distance between two Bézier splines
 
         :param alp: Bézier spline
         :param bet: Bézier spline
-        :param L: aproximate distance with length of discrete l-geodesic
-        :return: distance between alp and bet
+        :param l: work with discrete l-geodesic
+        :return: length of l-geodesic between alp and bet (approximation of the distance)
         """
 
         Gam = self.discgeodesic(alp, bet, n=l)
 
-        def integrand(t: float, a: BezierSpline, b: BezierSpline):
-            return self._M.metric.dist(a.eval(t), b.eval(t)) ** 2
-
         d = 0
         for i in range(len(Gam) - 1):
-            d += integrate.quad(integrand, 0, 1, args=(Gam[i], Gam[i + 1]))[0]
+            y, t = self.loc_dist(Gam[i], Gam[i + 1])
+            d += integrate.simps(y, t)
 
         return d
 
@@ -256,9 +271,6 @@ class Bezierfold(Manifold):
         """
         begin_mean = time.time()
 
-        # number of curves
-        N = len(B)
-
         # get shape of array of control points
         m = np.array(B[0].control_points[0].shape)
         m[0] = self._degree + 1
@@ -268,7 +280,7 @@ class Bezierfold(Manifold):
             """
             return Parallel(n_jobs=-1, prefer='threads', require='sharedmem')(delayed(self.discgeodesic)
                                                                               (meaniterate, b, n=n, eps=eps,
-                                                                               nsteps=n_stepsGeo, verbosity=11)
+                                                                               nsteps=n_stepsGeo, verbosity=0)
                                                                               for b in B)
 
         def loss(FF):
@@ -288,7 +300,8 @@ class Bezierfold(Manifold):
             P[i] = C.compute(self._M, D)
 
         # initial guess
-        bet_mean = BezierSpline(self._M, [P])
+        bet_mean = B[0]
+
         # initial legs
         F = legs(bet_mean)
         # initialize stopping parameters
@@ -299,44 +312,41 @@ class Bezierfold(Manifold):
         while np.abs(Enew - Eold) > delta and stepsize > min_stepsize and step <= nsteps:
             step += 1
             Eold = Enew
+            F_old = F
             old_mean = BezierSpline(self._M, bet_mean.control_points)
 
             # new data for regression
             t = np.linspace(0, 1, num=self._degree + 1)
             Y = []
-            # for H in F:
-            #     Y.append(H[1].eval(t))
-            # Y = np.concatenate(Y, axis=0)
 
             for H in F:
                 Y.append(H[1].eval(t))
 
+            # make regression w.r.t. mean values -> faster
             mean_Y = np.zeros_like(Y[0])
             for i in range(len(mean_Y)):
                 dat = []
-                for j in range(n):
+                for j in range(len(Y)):
                     # take value of each curve at time t_i
                     dat.append(Y[j][i])
 
                 mean_Y[i] = C.compute(self._M, dat)
 
             if verbosity == 2:
-                print('Updating the mean...')
-            # time values for regression
-            # N_t = np.tile(t, N)
-            # regression = RiemannianRegression(self._M, Y, N_t, self._degree, verbosity=2)
+                print('Step '+str(step)+': Updating the mean...')
+
             regression = RiemannianRegression(self._M, mean_Y, t, self._degree, verbosity=2)
             bet_mean = regression.trend
 
             # update discrete paths
             if verbosity == 2:
-                print('Updating discrete paths...')
+                print('Step '+str(step)+': Updating discrete paths...')
                 start = time.time()
             F = legs(bet_mean)
 
             if verbosity == 2:
                 end = time.time()
-                print('It took ' + "{:.2f}".format(end - start) + ' seconds to update the legs.')
+                print('...took ' + "{:.2f}".format(end - start) + ' seconds to update the legs.')
 
                 print('Evaluating energy...')
             Enew = loss(F)
@@ -346,7 +356,7 @@ class Bezierfold(Manifold):
                 print('Stopped because the energy increased.')
                 finish_mean = time.time()
                 print('Computing the mean took ' + "{:.2f}".format(finish_mean - begin_mean) + ' seconds.')
-                return old_mean
+                return old_mean, F_old
 
             # compute step size
             step_size = 0
@@ -355,19 +365,20 @@ class Bezierfold(Manifold):
             stepsize = np.sqrt(step_size)
 
             if verbosity > 0:
-                print('Step', step, 'Energy:', Enew, 'Enew - Eold:', Enew - Eold)
+                print('Mean-Comp-Step', step, 'Energy:', Enew, 'Enew - Eold:', Enew - Eold)
 
         finish_mean = time.time()
         print('Computing the mean took ' + "{:.2f}".format(finish_mean - begin_mean) + '.')
 
-        return bet_mean
+        return bet_mean, F
 
-    def gram(self, B, B_mean=None, n=5, delta=1e-5, min_stepSize=1e-10, nsteps=20, eps=1e-5, n_stepsGeo=10,
+    def gram(self, B, B_mean=None, F=None, n=5, delta=1e-5, min_stepSize=1e-10, nsteps=20, eps=1e-5, n_stepsGeo=10,
              verbosity=2):
         """Approximates the Gram matrix for a curve data set
 
         :param B: list of Bézier splines
         :param B_mean: mean of curves in B
+        :param F: discrete spider, i.e, discrete paths from mean to data
         :param n: see mean method
         :param delta: see mean method
         :param min_stepSize: see mean method
@@ -381,13 +392,8 @@ class Bezierfold(Manifold):
         """
 
         if B_mean is None:
-            B_mean = self.mean(B, n=n, delta=delta, min_stepsize=min_stepSize, nsteps=nsteps, eps=eps,
-                               n_stepsGeo=n_stepsGeo, verbosity=verbosity)
-
-        F = Parallel(n_jobs=-1, prefer='threads', require='sharedmem')(delayed(self.discgeodesic)
-                                                                       (B_mean, b, n=n, eps=eps,
-                                                                        nsteps=n_stepsGeo, verbosity=11)
-                                                                       for b in B)
+            B_mean, F = self.mean(B, n=n, delta=delta, min_stepsize=min_stepSize, nsteps=nsteps, eps=eps,
+                                  n_stepsGeo=n_stepsGeo, verbosity=verbosity)
 
         if verbosity == 2:
             print('Computing Gram matrix...')

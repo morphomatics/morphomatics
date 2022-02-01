@@ -14,9 +14,8 @@ import numpy as np
 import numpy.random as rnd
 import numpy.linalg as la
 
-from scipy.linalg import orth
-
 from morphomatics.manifold import Manifold, Metric, Connection
+from morphomatics.manifold.util import gram_schmidt
 
 
 class Sphere(Manifold):
@@ -131,11 +130,6 @@ class Sphere(Manifold):
             return np.zeros(self._M.dim + 1)
 
         def transp(self, p, q, X):
-            aa = self.inner(p, self.log(p, q), X)/self.dist(p, q)**2 * (self.log(p, q) + self.log(q, p))
-            bb = self.log(p, q)
-            cc = self.dist(p, q) ** 2
-
-
             if np.allclose(p, q) or self.dist(p, q) < 1e-13:
                 return X
             else:
@@ -173,7 +167,7 @@ class Sphere(Manifold):
 
             G = gram_schmidt(G)
 
-            lam = self.norm(p, self.log(p, q))**2 * np.ones(self._M.dim)
+            lam = np.ones(self._M.dim)
             lam[0] = 0
 
             return lam, G.transpose()
@@ -245,18 +239,3 @@ class Sphere(Manifold):
         def projToGeodesic(self, p, q, r, max_iter=10):
             # TODO
             return
-
-
-def gram_schmidt(A):
-    """Orthogonalize a set of vectors stored as the columns of matrix A."""
-    # Get the number of vectors.
-    n = A.shape[1]
-    for j in range(n):
-        # To orthogonalize the vector in column j with respect to the
-        # previous vectors, subtract from it its projection onto
-        # each of the previous vectors.
-        for k in range(j):
-            A[:, j] -= np.dot(A[:, k], A[:, j]) * A[:, k]
-        A[:, j] = A[:, j] / np.linalg.norm(A[:, j])
-
-    return A

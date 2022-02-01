@@ -55,6 +55,133 @@ class BezierSpline:
         # TODO
         return
 
+    def tangent(self, t):
+        """
+        Compute the tangent vector at the point of the spline corresponding to t.
+        """
+
+        def bezier_tangent(bet:BezierSpline, s):
+            """
+            Compute the tangent vector at the point of a (single) Bèzier curve corresponding to t in [0, 1].
+            """
+
+            def single_layer(A, r, X=None):
+                """
+                Single layer of the computation consisting of a a single step of the de Casteljau algorithm
+                plus additinal vectors transport/computation.
+                """
+                if X is None:
+                    # averaging of a single layer in de Casteljau algorithm
+                    size = np.array(np.shape(A))
+                    # give back one point less
+                    size[0] = size[0] - 1
+                    B = np.zeros(size)
+                    for i in range(size[0]):
+                        B[i] = self._M.exp(A[i], self._M.log(A[i], A[i + 1]) * r)
+                    return B
+
+                else:
+                    # averaging of a single layer in de Casteljau algorithm
+                    size = np.array(np.shape(A))
+                    # give back one point less
+                    size[0] = size[0] - 1
+                    B = np.zeros(size)
+                    for i in range(size[0]):
+                        B[i] = self._M.exp(A[i], self._M.log(A[i], A[i + 1]) * r)
+
+                    # calculate updates of tangent vectors
+                    X_shape = X.shape
+                    X_shape[0] -= 1
+                    Y = np.zeros(X_shape)
+                    for i in range(len(Y)):
+                        # new point is on geodesic between old control points -> log to endpoint shortened tangent vector
+                        v = self._M.connec.log(B[ii], A[ii+1])
+                        # rescale
+                        v = v / self._M.metric.norm(B[ii], v) * self._M.metric.dist(bet.control_points[ii],
+                                                                      bet.control_points[ii + 1])
+                        Y[i] += v
+                        # add transported old vectors
+                        # X[i] 'forward' X[i+1] 'backward'
+                        Y[i] += self._M.connec.DxGeo(A[i], A[i+1], r, X[i])
+                        Y[i] += self._M.connec.DyGeo(A[i], A[i + 1], r, X[i+1])
+
+                    return B, Y
+
+            k = bet.degrees[0]
+            if s == 0:
+                return bet.eval(0), k * self._M.connec.log(bet.control_points[0][0], bet.control_points[0][1])
+            elif s == 1:
+                return bet.eval(1), -k * self._M.connec.log(bet.control_points[0][-1], bet.control_points[0][-2])
+            else:
+                P_old = bet.control_points[0]
+                P = single_layer(P_old, s)
+
+                X = np.zeros(k, self._M.zerovec().shape)
+                for ii in range(len(P)):
+                    # new point is on geodesic between old control points -> log to endpoint shortened tangent vector
+                    v = self._M.connec.log(P[ii], P_old[ii+1])
+                    # rescale
+                    X[ii] = v / self._M.connec.norm(P[ii], v) * self._M.metric.dist(P_old[ii], P_old[ii+1])
+
+                # there are k+1 control points
+                for l in range(k):
+                    P, X = single_layer(P, s, X)
+
+                return P, X
+
+        # get segment and local parameter
+        ind, t = self.segmentize(t)
+
+        return bezier_tangent(BezierSpline(self._M, [self.control_points[ind]]), t)
+
+    def isC1(self, eps=1e-5):
+        """
+        Check whether the spline is (approximately) continuously differentible. For this, all control points that connect
+        two segments must be in the middle of their neighbours.
+        """
+        cp = self.control_points
+
+        # trivial case: only one segment -> infinitly often differentible
+        if len(cp) == 1:
+            return True
+
+        for i, seg in enumerate(cp[1:]):
+            p = self.Mgeopoint(cp[i-1][-2], seg[1], 1/2)
+            # if midpoint and connecting control point are further apart than epsilon return False
+            if self._M.metric.dist(p, seg[0]) > eps:
+                return False
+
+        return True
+
+    def geoshaped(self, eps=1e-7):
+        """
+        Return whether the spline is a reparametrized geodesic. For this we test if all tangent vectors from the first
+        control point to the other control points are parallel (within a tolerance of epsilon).
+        """
+        cp = self.control_points.copy()
+
+        # trivial case
+        if len(cp) == 1 and len(cp[0]) == 2:
+            return True
+
+        c = cp[0][0]
+        v0 = self._M.connec.log(c, cp[0][1])
+        cp[0] = cp[0][2:]
+        # check whether the logs at c to all other control points are parallel to v0
+        for seg in cp:
+            for cc in seg:
+                # ignore almost equal points---the test is unstable for them and their influence in non-geodecity is
+                # negligable
+                if self._M.metric.dist(c, cc) > 1e-7:
+                    v = self._M.connec.log(c, cc)
+                    par = self._M.metric.inner(c, v0, v) / (self._M.metric.norm(c, v0) * self._M.metric.norm(c, v))
+
+                    if -1 + eps < par < 1 - eps:
+                        # v and v0 are not parallel
+                        return False
+        # all vectors were (almost) parallel
+        return True
+
     def Mgeopoint(self, p, q, t):
         """Evaluates the geodesic from p to q at time t in [0,1].
         Some manifolds allow faster implementations than this generic one; e.g., Sym+."""

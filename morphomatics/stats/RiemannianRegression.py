@@ -73,7 +73,6 @@ class RiemannianRegression(object):
 
             return self.sumOfSquared(BezierSpline(M, control_points, iscycle=iscycle), Y, param)
 
-
         #MMM = Product([M for i in range(degrees[0])]) # for conjugated gradient
 
         # Gradient
@@ -85,7 +84,6 @@ class RiemannianRegression(object):
 
             # return _ProductTangentVector([grad_E[0][i] for i in range(len(grad_E[0]))]) # for conjugated gradient
             return np.concatenate(grad_E)
-            # return [grad_E[0][i] for i in range(len(grad_E[0]))]
 
         # Solve optimization problem with pymanopt by optimizing over independent control points
         if iscycle:
@@ -108,7 +106,7 @@ class RiemannianRegression(object):
         P_opt, opt_log = solver.solve(problem, list(np.concatenate(P_init)))
         P_opt = self.full_set(M, np.stack(P_opt, axis=0), degrees, iscycle)
 
-        self._spline = BezierSpline(M, P_opt)
+        self._spline = BezierSpline(M, P_opt, iscycle=iscycle)
         self._unexplained_variance = opt_log['final_values']["f(x)"] / len(Y)
 
     @property

@@ -20,7 +20,7 @@ except:
     from scipy.sparse.linalg import factorized as direct_solve
 
 from ..geom import Surface
-from . import GLp3
+from . import GLpn
 from . import ShapeSpace
 from .util import align
 
@@ -44,7 +44,7 @@ class GLpCoords(ShapeSpace):
 
         self.update_ref_geom(self.ref.v)
 
-        self.GLp = GLp3(self.ref.f.shape[0], structure='AffineGroup')
+        self.GLp = GLpn(self.ref.f.shape[0], structure='AffineGroup')
 
         name = 'Shape Space based on the orientation preserving component of the general linear group'
         dimension = self.ref.f.shape[0] * 9

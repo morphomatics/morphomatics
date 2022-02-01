@@ -12,36 +12,39 @@
 
 import numpy as np
 from scipy.linalg import logm, expm
-from morphomatics.manifold import Manifold, LieGroup, Connection, Metric
-
-from morphomatics.manifold.util import vectime3d
+from morphomatics.manifold import Manifold, LieGroup, Connection
 
 
-class GLp3(Manifold):
-    """Returns the product Lie group GL^+(3)^k, i.e., a product of k 3-by-3 matrices each with positive determinant.
+class GLpn(Manifold):
+    """Returns the product Lie group GL^+(n)^k, i.e., a product of k n-by-n matrices each with positive determinant.
 
-     manifold = GLp3(k)
+     manifold = GLpn(n, k)
 
-     Elements of GL^+(3)^k are represented as arrays of size kx3x3.
+     Elements of GL^+(n)^k are represented as arrays of size kxnxn.
 
      # NOTE: Tangent vectors are represented as left translations in the Lie algebra, i.e., a tangent vector X at g is
      represented as as d_gL_{g^(-1)}(X)
      """
 
-    def __init__(self, k=1, structure='AffineGroup'):
+    def __init__(self, n=3, k=1, structure='AffineGroup'):
+        self._n = n
         self._k = k
 
         if k == 1:
-            name = 'Orientation preserving maps of R^3'
+            name = 'Orientation preserving maps of R^n'
         elif k > 1:
-            name = '{k}-tuple of orientation preserving maps of R^3'.format(k=k)
+            name = '{k}-tuple of orientation preserving maps of R^{n}'.format(k=k, n=n)
         else:
             raise RuntimeError("k must be an integer no less than 1.")
 
-        super().__init__(name, k*9, point_shape=(k, 3, 3))
+        super().__init__(name, k * n**2, point_shape=(k, n, n))
 
         if structure:
             getattr(self, f'init{structure}Structure')()
+
+    @property
+    def n(self):
+        return self._n
 
     @property
     def k(self):
@@ -50,29 +53,29 @@ class GLp3(Manifold):
     def rand(self):
         """Returns a random point in the Lie group. This does not
         follow a specific distribution."""
-        A = np.random.rand(self.k, 3, 3)
-        return A + np.tile(np.eye(3), (self._k, 1, 1))
+        A = np.random.rand(self.k, self.n, self.n)
+        return A + np.tile(np.eye(self.n), (self.k, 1, 1))
 
     def randvec(self, A):
         """Returns a random vector in the tangent space at A.
         """
-        return np.random.rand(self.k, 3, 3)
+        return np.random.rand(self.k, self.n, self.n)
 
     def zerovec(self):
         """Returns the zero vector in the tangent space at g."""
-        return np.zeros((self.k, 3, 3))
+        return np.zeros((self.k, self.n, self.n))
 
     def initAffineGroupStructure(self):
         """
         Standard group structure with canonical Cartan Shouten Connction.
         """
-        structure = GLp3.AffineGroupStructure(self)
+        structure = GLpn.AffineGroupStructure(self)
         self._connec = structure
         self._group = structure
 
     class AffineGroupStructure(Connection, LieGroup):
         """
-        Standard group structure on GL+3(k) where the composition of two elements is given by component-wise matrix
+        Standard group structure on GL+n(k) where the composition of two elements is given by component-wise matrix
         multiplication. The connection is the corresponding canonical Cartan Shouten connection. No Riemannian metric is
         used.
         """
@@ -85,22 +88,21 @@ class GLp3(Manifold):
 
         @property
         def __str__(self):
-            return 'standard group structure on GL+(3)^k with CCS connection'
+            return 'standard group structure on GL+(n)^k with CCS connection'
 
         # Group
 
         def identity(self):
             """Returns the identity element e of the Lie group."""
-            return np.tile(np.eye(3), (self._G.k, 1, 1))
+            return np.tile(np.eye(self._G.n), (self._G.k, 1, 1))
 
         def bracket(self, X, Y):
             """Lie bracket in Lie algebra."""
             return np.einsum('kij,kjl->kil', X, Y) - np.einsum('kij,kjl->kil', Y, X)
 
-
         def coords(self, X):
             """Coordinate map for the tangent space at the identity."""
-            return np.reshape(X, (self._G._k * 9, 1))
+            return np.reshape(X, (self._G.k * self._G.n**2, 1))
 
         def lefttrans(self, g, f):
             """Left translation of g by f.
@@ -118,7 +120,7 @@ class GLp3(Manifold):
             return np.linalg.inv(g)
 
         def exp(self, *argv):
-            """Computes the Lie-theoretic and Riemannian exponential map
+            """Computes the Lie-theoretic and connection exponential map
             (depending on signature, i.e. whether footpoint is given as well)
             """
             X = argv[-1]
@@ -129,8 +131,8 @@ class GLp3(Manifold):
                 return self.lefttrans(g, argv[0])
 
         def log(self, *argv):
-            """Computes the Lie-theoretic logarithm (i.e., the element-wise matrix logarithm) of g. This is the inverse of
-            `groupexp`.
+            """Computes the Lie-theoretic and connection logarithm map
+            (depending on signature, i.e. whether footpoint is given as well)
             """
             g = argv[-1]
             if len(argv) == 1: # group log

@@ -45,14 +45,14 @@ class ExponentialBarycenter(object):
             x = data[0].copy() #TODO: better guess -> choose most central sample
 
         # compute intrinsic mean
-        #cost = lambda a: 0.5 / len(data) * np.sum([mfd.dist(a, b) ** 2 for b in data])
-        #grad = lambda a: np.sum([mfd.log(a, b) for b in data], axis=0) / len(data)
+        #cost = lambda a: 0.5 / len(data) * np.sum([mfd.metric.dist(a, b) ** 2 for b in data])
+        #grad = lambda a: np.sum([mfd.connec.log(a, b) for b in data], axis=0) / len(data)
         # hess = lambda a, b: b
         # problem = Problem(manifold=mfd, cost=cost, grad=grad, hess=hess, verbosity=2)
         # x = SteepestDescent(maxiter=max_iter).solve(problem, x=x)
 
         # Newton-type fixed point iteration
-        with Parallel(n_jobs=n_jobs, prefer='threads', verbose=10) as parallel:
+        with Parallel(n_jobs=n_jobs, prefer='threads', verbose=0) as parallel:
             grad = lambda a: np.sum(parallel(delayed(mfd.connec.log)(a, b) for b in data), axis=0) / len(data)
             for _ in range(max_iter):
                 g = grad(x)

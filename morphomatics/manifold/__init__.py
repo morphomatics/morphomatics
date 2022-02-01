@@ -17,9 +17,10 @@ from .Connection import Connection
 from .Metric import Metric
 
 # Standard manifolds
+from .GLpn import GLpn
 from .SO3 import SO3
+from .SE3 import SE3
 from .SPD import SPD
-from .GLp3 import GLp3
 from .Sphere import Sphere
 
 # PyManopt Wrapper for manifolds
