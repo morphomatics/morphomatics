@@ -24,7 +24,7 @@ class ManoptWrap(Manifold):
 
     def __str__(self):
         """Returns a string representation of the particular manifold."""
-        return self._M.__str__
+        return str(self._M)
 
     # Manifold properties that subclasses can define
 

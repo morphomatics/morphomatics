@@ -40,12 +40,11 @@ class Manifold(metaclass=abc.ABCMeta):
         # (possibly) define a group operation turning the manifold into a Lie group
         self._group = group
 
-    @property
     def __str__(self):
         """Returns a string representation of the particular manifold."""
-        conf = 'metric='+self._metric.__str__ if self._metric else ''
-        conf += ' connection='+self._connec.__str__ if self._connec else ''
-        conf += ' group='+self._group.__str__ if self._group else ''
+        conf = 'metric=' + str(self._metric) if self._metric else ''
+        conf += ' connection=' + str(self._connec) if self._connec else ''
+        conf += ' group=' + str(self._group) if self._group else ''
         if not conf:
             return self._name
         return f'{self._name} ({conf.strip()})'

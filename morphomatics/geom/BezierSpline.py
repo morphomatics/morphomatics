@@ -31,7 +31,7 @@ class BezierSpline:
         self.iscycle = iscycle
 
     def __str__(self):
-        return 'Bézier spline through ' + self._M.__str__()
+        return 'Bézier spline through ' + str(self._M)
 
     @property
     def nsegments(self):

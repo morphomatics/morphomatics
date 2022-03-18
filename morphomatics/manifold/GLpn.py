@@ -86,7 +86,6 @@ class GLpn(Manifold):
             """
             self._G = G
 
-        @property
         def __str__(self):
             return 'standard group structure on GL+(n)^k with CCS connection'
 

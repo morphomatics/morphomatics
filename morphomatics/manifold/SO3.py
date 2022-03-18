@@ -93,7 +93,6 @@ class SO3(Manifold):
             # ... and the opposite direction
             self.skew2versor = .5 * self.versor2skew
 
-        @property
         def __str__(self):
             return "SO3(k)-canonical structure"
 
