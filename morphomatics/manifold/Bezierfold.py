@@ -45,7 +45,7 @@ class Bezierfold(Manifold):
 
         self._degree = degree
 
-        name = 'Manifold of Bézier curves of degree {d} through '.format(d=degree)+M.__str__
+        name = 'Manifold of Bézier curves of degree {d} through '.format(d=degree)+ str(M)
         K = np.sum(self._degree) - 1
         dimension = K * M.dim
         point_shape = [K, M.point_shape]

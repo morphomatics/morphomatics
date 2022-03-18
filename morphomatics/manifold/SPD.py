@@ -80,7 +80,6 @@ class SPD(Manifold):
             """
             self._M = M
 
-        @property
         def __str__(self):
             return "SPD(k, d)-canonical structure"
 

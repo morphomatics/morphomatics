@@ -66,7 +66,6 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         point_shape = [2, self.ref.f.shape[0], 3, 3]
         super().__init__(name, dimension, point_shape, self, self, None)
 
-    @property
     def __str__(self):
         return self._name
 

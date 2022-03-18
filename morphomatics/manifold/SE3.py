@@ -90,7 +90,6 @@ class SE3(Manifold):
             # SE(3) is subgroup of GL+(4) -> use methods of the ladder
             self._GLp4.initAffineGroupStructure()
 
-        @property
         def __str__(self):
             return "SE3(k)-affine group structure"
 
