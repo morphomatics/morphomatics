@@ -29,7 +29,8 @@ setup(
           'pymanopt==0.2.5',
           'joblib',
           'pyvista>=0.25',
-          'pyvistaqt'
+          'pyvistaqt',
+          'ipygany'
       ],
   classifiers=[
     'Development Status :: 4 - Beta',
