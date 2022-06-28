@@ -26,7 +26,7 @@ setup(
   install_requires=[
           'numpy',
           'scipy',
-          'pymanopt=0.2.5',
+          'pymanopt==0.2.5',
           'joblib',
           'pyvista>=0.25',
           'pyvistaqt'
