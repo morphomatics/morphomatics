@@ -13,7 +13,11 @@
 import numpy as np
 from typing import Sequence
 
+import jax
+import jax.numpy as jnp
+
 from morphomatics.manifold import ShapeSpace, Metric, Connection, Sphere
+from morphomatics.manifold.util import randn_with_key
 
 class Kendall(ShapeSpace):
     """
@@ -58,16 +62,16 @@ class Kendall(ShapeSpace):
         return self.ref
 
     def rand(self):
-        p = np.random.rand(self.point_shape)
+        p = randn_with_key(self.point_shape)
         return self.project(p)
 
     def randvec(self, p):
-        v = np.random.rand(self.point_shape)
+        v = randn_with_key(self.point_shape)
         v = self.center(v)
         return self.horizontal(p, self._S.metric.proj(p, v))
 
     def zerovec(self):
-        return np.zeros(self.point_shape)
+        return jnp.zeros(self.point_shape)
 
     @staticmethod
     def wellpos(x, y):
@@ -78,11 +82,11 @@ class Kendall(ShapeSpace):
         :returns: y well-positioned to x.
         """
         m = x.shape[-1]
-        sigma = np.ones(m)
+        sigma = jnp.ones(m)
         # full_matrices=False equals full_matrices=True for quadratic input but allows for auto diff
-        u, _, v = np.linalg.svd(x.reshape(-1, m).T @ y.reshape(-1, m), full_matrices=False)
-        sigma[-1] = np.sign(np.linalg.det(u @ v))
-        return np.einsum('...i,ji,j,kj', y, v, sigma, u)
+        u, _, v = jnp.linalg.svd(x.reshape(-1, m).T @ y.reshape(-1, m), full_matrices=False)
+        sigma = sigma.at[-1].set(jnp.sign(jnp.linalg.det(u @ v)))
+        return jnp.einsum('...i,ji,j,kj', y, v, sigma, u)
 
     @staticmethod
     def center(x):
@@ -100,7 +104,7 @@ class Kendall(ShapeSpace):
         :returns: Projected x.
         """
         x = Kendall.center(x)
-        return x / np.linalg.norm(x)
+        return x / jnp.linalg.norm(x)
 
     @staticmethod
     def vertical(p, X):
@@ -113,9 +117,9 @@ class Kendall(ShapeSpace):
         S = p.reshape(-1, d).T @ p.reshape(-1, d)
         rhs = X.reshape(-1, d).T @ p.reshape(-1, d)
         rhs = rhs.T - rhs
-        S = np.kron(np.eye(d), S) + np.kron(S, np.eye(d))
-        A, *_ = np.linalg.lstsq(S, rhs.reshape(-1))
-        return np.einsum('...i,ij', p, A.reshape(d, d))
+        S = jnp.kron(jnp.eye(d), S) + jnp.kron(S, jnp.eye(d))
+        A, *_ = jnp.linalg.lstsq(S, rhs.reshape(-1))
+        return jnp.einsum('...i,ij', p, A.reshape(d, d))
 
     @staticmethod
     def horizontal(p, X):
@@ -196,30 +200,24 @@ class Kendall(ShapeSpace):
             q = Kendall.wellpos(p, q)
             return self._S.metric.dist(p, q)
 
-        def eval_jacobiField(self, p, q, t, X):
+        def squared_dist(self, p, q):
             q = Kendall.wellpos(p, q)
-            phi = self._S.metric.dist(p, q)
-            v = self._S.connec.log(p, q)
-            gamTS = self._S.connec.exp(p, t*v)
+            return self._S.metric.squared_dist(p, q)
 
-            v = v / self._S.metric.norm(p, v)
-            Xtan = self._S.metric.inner(p, X, v) * v
-            Xorth = X - Xtan
+        def eval_jacobiField(self, p, q, t, X):
+            return self.proj(*super().eval_jacobiField(p, q, t, X))
 
-            return (np.sin((1-t) * phi) / np.sin(phi)) * Kendall.horizontal(gamTS, Xorth) + (1-t)*Xtan
+            # q = Kendall.wellpos(p, q)
+            # phi = self._S.metric.dist(p, q)
+            # v = self._S.connec.log(p, q)
+            # gamTS = self._S.connec.exp(p, t * v)
+            #
+            # v = v / self._S.metric.norm(p, v)
+            # Xtan = self._S.metric.inner(p, X, v) * v
+            # Xorth = X - Xtan
+            #
+            # # TODO: Xtan not jet at gamTS
+            # return gamTS, (np.sin((1 - t) * phi) / np.sin(phi)) * Kendall.horizontal(gamTS, Xorth) + (1 - t) * Xtan
 
-        def jacobiField(self, p, q, t, X):
-            if t == 1:
-                return np.zeros_like(X)
-            elif t == 0:
-                return X
-            else:
-                return self.eval_jacobiField(p, q, t, X)
-
-        def adjJacobi(self, p, q, t, X):
-            if t == 1:
-                return np.zeros_like(X)
-            elif t == 0:
-                return X
-            else:
-                return self.eval_jacobiField(self.geopoint(p, q, t), q, -t / (1 - t), X)
+        def eval_adjJacobi(self, p, q, t, X):
+            return self.proj(p, super().eval_adjJacobi(p, q, t, X))

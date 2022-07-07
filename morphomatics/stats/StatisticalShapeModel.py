@@ -12,6 +12,7 @@
 
 
 import numpy as np
+import jax.numpy as jnp
 
 from morphomatics.manifold import ShapeSpace
 from morphomatics.stats import ExponentialBarycenter as Mean, PrincipalGeodesicAnalysis as PGA
@@ -47,7 +48,7 @@ class StatisticalShapeModel(object):
 
         # compute mean / setup manifold space (s.t. mean agrees to reference)
         self.setupShapeSpace(surfaces)
-        coords = [self.space.to_coords(S.v) for S in surfaces]
+        coords = jnp.stack([self.space.to_coords(S.v) for S in surfaces])
         self.mean_coords = Mean.compute(self.space, coords)
 
         # compute principal modes
@@ -71,7 +72,8 @@ class StatisticalShapeModel(object):
         tol = mean.v.std(axis=0).mean() / 1000
         for _ in range(max_outer):
             # compute mean in manifold space
-            x = Mean.compute(space, [space.to_coords(S.v) for S in surfaces], x=space.ref_coords if len(surfaces) > 2 else None, max_iter=max_inner)
+            data = jnp.stack([space.to_coords(S.v) for S in surfaces])
+            x = Mean.compute(space, data, x=space.ref_coords if len(surfaces) > 2 else None, max_iter=max_inner)
 
             # compute vertex coordinates of mean
             v = space.from_coords(x)

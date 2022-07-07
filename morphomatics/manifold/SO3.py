@@ -12,14 +12,15 @@
 
 import numpy as np
 
-from scipy.spatial.transform import Rotation
-import numpy.linalg as la
+import jax
+import jax.numpy as jnp
 
 from morphomatics.manifold import Manifold, Metric, Connection, LieGroup
-from pymanopt.manifolds.rotations import randskew, randrot
-from pymanopt.tools.multi import multiskew
+from morphomatics.manifold.util import multiskew, vectime3d, randn_with_key
 
-from morphomatics.manifold.util import vectime3d
+I = np.eye(3)
+O = np.zeros(3)
+versor2skew = jnp.array([[O, -I[2], I[1]], [I[2], O, -I[0]], [-I[1], I[0], O]])
 
 
 class SO3(Manifold):
@@ -27,8 +28,8 @@ class SO3(Manifold):
 
      manifold = SO3(k)
 
-     Elements of SO(3)^k are represented as arrays of size kx3x3 where every 3x3 slice is an orthogonal matrix, i.e., a
-     matrix R with R * R^T = eye(3) and det(R) = 1.
+     Elements of SO(3)^k are represented as arrays of size kx3x3 where every 3x3 slice is an orthogonal R, i.e., a
+     R R with R * R^T = eye(3) and det(R) = 1.
 
      To improve efficiency, tangent vectors are always represented in the Lie Algebra.
      """
@@ -44,7 +45,7 @@ class SO3(Manifold):
         self._k = k
 
         dimension = 3 * self._k
-        point_shape = [self._k, 3, 3]
+        point_shape = (self._k, 3, 3)
         super().__init__(name, dimension, point_shape)
 
         if structure:
@@ -63,16 +64,20 @@ class SO3(Manifold):
     def k(self):
         return self._k
 
+    def randskew(self):
+        S = randn_with_key(self.point_shape)
+        return multiskew(S)
+
     def rand(self):
-        return randrot(3, self._k)
+        return self.group.exp(self.randskew())
 
     def randvec(self, X):
-        U = randskew(3, self._k)
-        nrmU = np.sqrt(np.tensordot(U, U, axes=U.ndim))
+        U = self.randskew()
+        nrmU = jnp.sqrt(jnp.tensordot(U, U, axes=U.ndim))
         return U / nrmU
 
     def zerovec(self):
-        return np.zeros((self._k, 3, 3))
+        return jnp.zeros(self.point_shape)
 
     class CanonicalStructure(Metric, Connection, LieGroup):
         """
@@ -86,41 +91,25 @@ class SO3(Manifold):
             """
             self._M = M
 
-            # tensor mapping versor to skew-sym. matrix
-            I = np.eye(3)
-            O = np.zeros(3)
-            self.versor2skew = np.array([[O, -I[2], I[1]], [I[2], O, -I[0]], [-I[1], I[0], O]])
-            # ... and the opposite direction
-            self.skew2versor = .5 * self.versor2skew
-
         def __str__(self):
             return "SO3(k)-canonical structure"
 
         @property
         def typicaldist(self):
-            return np.pi * np.sqrt(3 * self._M.k)
+            return jnp.pi * jnp.sqrt(3 * self._M.k)
 
         def inner(self, R, X, Y):
             """product metric"""
-            return np.sum(np.einsum('...ij,...ij', X, Y))
-
-        def eleminner(self, R, X, Y):
-            """element-wise inner product"""
-            return np.einsum('...ij,...ij', X, Y)
+            return jnp.sum(jnp.einsum('...ij,...ij', X, Y))
 
         def norm(self, R, X):
             """norm from product metric"""
-            return np.sqrt(self.inner(R, X, X))
-
-        def elemnorm(self, R, X):
-            """element-wise norm"""
-            return np.sqrt(self.eleminner(R, X, X))
+            return jnp.sqrt(self.inner(R, X, X))
 
         def proj(self, X, H):
             """orthogonal (with respect to the euclidean inner product) projection of ambient
             vector ((k,3,3) array) onto the tangentspace at X"""
-            # skew-sym. part of: H * X.T
-            return multiskew(np.einsum('...ij,...kj', X, H))
+            return multiskew(self.dright_inv(X, H))
 
         egrad2rgrad = proj
 
@@ -135,38 +124,37 @@ class SO3(Manifold):
             # TODO
             return self.exp(R, X)
 
-        def exp(self, R, X):
-            """Riemannian exponential with base point R evaluated at X
+        def exp(self, *argv):
+            """Computes the Lie-theoretic and Riemannian logarithmic map
+                (depending on signature, i.e. whether footpoint is given as well)
 
                 Note that tangent vectors are always represented in the Lie Algebra.Thus, the Riemannian and group
                 operation coincide.
             """
-            assert R.shape == X.shape
+            return jax.lax.cond(len(argv) == 1,
+                                lambda A: A[-1],
+                                lambda A: jnp.einsum('...ij,...jk', A[-1], A[0]),
+                                (argv[0], expm(argv[-1])))
 
-            a = R.ndim - 2
-            versors = Rotation.from_rotvec(np.tensordot(X, self.skew2versor, axes=([a, a+1], [a, a+1])))
-            return np.einsum('...ij,...jk', versors.as_matrix(), R)
-
-        def log(self, R, Q):
-            """Riemannian logarithm with base point R evaluated at Q
+        def log(self, *argv):
+            """Computes the Lie-theoretic and Riemannian exponential map
+                (depending on signature, i.e. whether footpoint is given as well)
 
                 Note that tangent vectors are always represented in the Lie Algebra.Thus, the Riemannian and group
                 operation coincide.
             """
-            assert R.shape == Q.shape
-
-            versors = Rotation.from_matrix(np.einsum('...ij,...kj', Q, R)).as_rotvec()
-            X = np.einsum('ijk,...k', self.versor2skew, versors)
-            return multiskew(X)
+            return logm(jax.lax.cond(len(argv) == 1,
+                                     lambda A: A[-1],
+                                     lambda A: jnp.einsum('...ij,...kj', A[-1], A[0]),
+                                     argv))
 
         def geopoint(self, R, Q, t):
             """Evaluate the geodesic from R to Q at time t in [0, 1]"""
-            assert R.shape == Q.shape and np.isscalar(t)
-
             return self.exp(R, t * self.log(R, Q))
 
+        @property
         def identity(self):
-            return np.tile(np.eye(3), (self._M.k, 1, 1))
+            return jnp.tile(jnp.eye(3), (self._M.k, 1, 1))
 
         def transp(self, R, Q, X):
             """Parallel transport for SO(3)^k.
@@ -175,46 +163,34 @@ class SO3(Manifold):
             :param X: tangent vector at R
             :return: parallel transport of X at Q
             """
-            assert R.shape == Q.shape == X.shape
-
-            # o <- log(R,Q)/2
-            o = .5 * Rotation.from_matrix(np.einsum('...ij,...kj', Q, R)).as_rotvec()
-            O = Rotation.from_rotvec(o).as_matrix()
-            return np.einsum('...ji,...jk,...kl', O, X, O)
+            O = expm(.5 * logm(jnp.einsum('...ij,...kj', Q, R)))
+            return jnp.einsum('...ji,...jk,...kl', O, X, O)
 
         def pairmean(self, R, Q):
-            assert R.shape == Q.shape
-
             return self.exp(R, 0.5 * self.log(R, Q))
-
-        def elemdist(self, R, Q):
-            """element-wise distance function"""
-            assert R.shape == Q.shape
-
-            versors = Rotation.from_matrix(np.einsum('...ij,...kj', Q, R)).as_rotvec()
-            return np.sqrt(2)*la.norm(versors, axis=1)
 
         def dist(self, R, Q):
             """product distance function"""
-            versors = Rotation.from_matrix(np.einsum('...ij,...kj', Q, R)).as_rotvec()
-            return np.sqrt(2 * np.sum(versors**2))
+            return jnp.sqrt(self.squared_dist(R, Q))
 
-        def projToGeodesic(self, R, Q, P, max_iter = 10):
+        def squared_dist(self, R, Q):
+            """product distance function"""
+            X = logm(jnp.einsum('...ij,...kj', Q, R))
+            return jnp.sum(X ** 2)
+
+        def projToGeodesic(self, R, Q, P, max_iter=10):
             '''
             :arg X, Y: elements of SO(3)^k defining geodesic X->Y.
             :arg P: element of SO(3)^k to be projected to X->Y.
             :returns: projection of P to X->Y
             '''
 
-            assert R.shape == Q.shape
-            assert Q.shape == P.shape
-
             # all tagent vectors in common space i.e. algebra
             v = self.log(R, Q)
-            v /= self.norm(R, v)
+            v = v / self.norm(R, v)
 
             # initial guess
-            Pi = R
+            Pi = R.copy()
 
             # solver loop
             for _ in range(max_iter):
@@ -228,6 +204,12 @@ class SO3(Manifold):
 
             return Pi
 
+        def eval_jacobiField(self, R, Q, t, X):
+            # ### using (forward-mode) automatic differentiation of geopoint(..)
+            f = lambda O: self.geopoint(O, Q, t)
+            geo, J = jax.jvp(f, (R,), (self.dright(R, X),))
+            return geo, multiskew(self.dright_inv(geo, J))
+
         def jacONB(self, R, Q):
             """Let J be the Jacobi operator along the geodesic from R to Q. This code diagonalizes J.
 
@@ -238,46 +220,44 @@ class SO3(Manifold):
             :param Q: element of SO(3)^k
             :returns lam, G: eigenvalues and orthonormal eigenbasis of Jac at R
             """
-            assert R.shape == Q.shape
-            k = self._M.k
+            k = len(R)  # self._M.k
 
             V = self.log(R, Q)
-            nor_v = np.linalg.norm(V, ord='fro', axis=(1, 2))
+            nor_v = jnp.linalg.norm(V, ord='fro', axis=(1, 2))
             # normalize V
             V = vectime3d(nor_v, V)
 
             # (number of faces) x (number of basis elements) x 3 x 3
-            F = np.zeros((k, 3, 3, 3))
-            lam = np.zeros((k, 3))
+            F = jnp.zeros((k, 3, 3, 3))
+            lam = jnp.zeros((k, 3))
 
-            x = np.atleast_2d(V[..., 0, 1]).T
-            y = np.atleast_2d(V[..., 0, 2]).T
-            z = np.atleast_2d(V[..., 1, 2]).T
+            x = jnp.atleast_2d(V[..., 0, 1]).T
+            y = jnp.atleast_2d(V[..., 0, 2]).T
+            z = jnp.atleast_2d(V[..., 1, 2]).T
 
             # eigenvalues
-            lam[:, 1:] = 1 / 4 * np.tile(x**2 + y**2 + z**2, (1, 2))
+            lam = lam.at[:, 1:].set(1 / 4 * jnp.tile(x ** 2 + y ** 2 + z ** 2, (1, 2)))
 
             # change sign for convenience
-            e1 = np.tile(-self.versor2skew[2], (k, 1, 1))
-            e2 = np.tile(self.versor2skew[1], (k, 1, 1))
-            e3 = np.tile(-self.versor2skew[0], (k, 1, 1))
+            e1 = jnp.tile(-versor2skew[2], (k, 1, 1))
+            e2 = jnp.tile(versor2skew[1], (k, 1, 1))
+            e3 = jnp.tile(-versor2skew[0], (k, 1, 1))
+
+            elemnorm = lambda A: jnp.sqrt(jnp.einsum('...ij,...ij', A, A))
 
             # normalized eigenbasis unless x = 0 and z = 0
-            F[:, 0, ...] = vectime3d(1 / self.elemnorm(R, V), V)
-            F[:, 1, ...] = vectime3d(-z, e1) + vectime3d(x, e3)
-            F[:, 2, ...] = vectime3d(-x * y, e1) + vectime3d(x**2 + z**2, e2) + vectime3d(- y * z, e3)
+            F = F.at[:, 0, ...].set(vectime3d(1 / elemnorm(V), V))
+            F = F.at[:, 1, ...].set(vectime3d(-z, e1) + vectime3d(x, e3))
+            F = F.at[:, 2, ...].set(vectime3d(-x * y, e1) + vectime3d(x ** 2 + z ** 2, e2) + vectime3d(- y * z, e3))
 
             # take care of division by 0 later
-            with np.errstate(all='ignore'):
-                F[:, 1, ...] = vectime3d(1 / self.elemnorm(R, F[:, 1, ...]), F[:, 1, ...])
-                F[:, 2, ...] = vectime3d(1 / self.elemnorm(R, F[:, 2, ...]), F[:, 2, ...])
+            # with jnp.errstate(all='ignore'):
+            F = F.at[:, 1, ...].set(vectime3d(1 / elemnorm(F[:, 1, ...]), F[:, 1, ...]))
+            F = F.at[:, 2, ...].set(vectime3d(1 / elemnorm(F[:, 2, ...]), F[:, 2, ...]))
 
             # take care of special cases
-            ind = np.nonzero(np.abs(x + z) < 1e-12)
-            m = np.size(ind[0])
-            if m > 0:
-                for i in ind[0]:
-                    F[i] = 1 / np.sqrt(2) * np.stack((e1[0], e2[0], e3[0]))
+            zero_xz = jnp.abs(x + z).reshape(k, 1, 1, 1) < 1e-12
+            F = jnp.where(zero_xz, 1 / jnp.sqrt(2) * jnp.stack((e1, e2, e3), axis=1), F)
 
             return lam, F
 
@@ -289,134 +269,103 @@ class SO3(Manifold):
             :param X: tangent vector at R
             :returns: tangent vector at R
             """
-            assert R.shape == Q.shape == X.shape
-
             V = self.log(R, Q)
+
             # normalize tangent vectors
-            for v in V:
-                v = v / np.linalg.norm(v)
+            V = V / jnp.linalg.norm(V, axis=(-2, -1))[..., None, None]
 
-            return 1 / 4 * (-np.einsum('...ij,...jk,...kl', V, V, X) + 2 * np.einsum('...ij,...jk,...kl', V, X, V)
-                            - np.einsum('...ij,...jk,...kl', X, V, V))
+            return 1 / 4 * (-jnp.einsum('...ij,...jk,...kl', V, V, X) + 2 * jnp.einsum('...ij,...jk,...kl', V, X, V)
+                            - jnp.einsum('...ij,...jk,...kl', X, V, V))
 
-        def jacobiField(self, R, Q, t, X):
-            """Evaluates a Jacobi field (with boundary conditions gam(0) = X, gam(1) = 0) along the geodesic gam from R to Q.
-            :param R: element of the space of SO(3)^k
-            :param Q: element of the space of SO(3)^k
-            :param t: scalar in [0,1]
-            :param X: tangent vector at R
-            :return: tangent vector at gam(t)
-            """
-            assert R.shape == Q.shape == X.shape and np.isscalar(t)
+        def eval_adjJacobi(self, R, Q, t, X):
+            ### using (reverse-mode) automatic differentiation of geopoint(..)
+            f = lambda O: self.geopoint(O, Q, t)
+            geo, vjp = jax.vjp(f, R)
+            return multiskew(self.dright_inv(R, vjp(self.dright(geo, X))[0]))
 
-            if t == 1:
-                return np.zeros_like(X)
-            elif t == 0:
-                return X
-            else:
-                # gam(t)
-                P = self.geopoint(R, Q, t)
-
-                # orthonormal eigenvectors of the Jacobi operator that generate the parallel frame field along gam and the
-                # eigenvalues
-                lam, F = self.jacONB(R, Q)
-
-                Fp = np.zeros_like(F)
-                alpha = np.zeros_like(lam)
-
-                for i in range(3):
-                    # transport bases elements to gam(t)
-                    Fp[:, i, ...] = self.transp(R, P, F[:, i, ...])
-                    # expand X w.r.t. F at R
-                    alpha[:, i] = self.eleminner(R, F[:, i, ...], X)
-
-                # weights for the linear combination of the three basis elements
-                weights = weightfun(lam, t, self.elemdist(R, Q))
-
-                # evaluate the adjoint Jacobi field at R
-                a = weights * alpha
-                for i in range(3):
-                    Fp[:, i, ...] = vectime3d(a[:, i], Fp[:, i, ...])
-
-                return multiskew(np.sum(Fp, axis=1))
-
-        def adjJacobi(self, R, Q, t, X):
-            """Evaluates an adjoint Jacobi field for the geodesic gam from R to Q.
-            :param R: element of the space of SO(3)^k
-            :param Q: element of the space of SO(3)^k
-            :param t: scalar in [0,1]
-            :param X: tangent vector at gam(t)
-            :return: tangent vector at R
-            """
-            assert R.shape == Q.shape == X.shape and np.isscalar(t)
-
-            if t == 1:
-                return np.zeros_like(X)
-            elif t == 0:
-                return X
-            else:
-                # gam(t)
-                P = self.geopoint(R, Q, t)
-
-                # orthonormal eigenvectors of the Jacobi operator that generate the parallel frame field along gam and the
-                # eigenvalues
-                lam, F = self.jacONB(R, Q)
-
-                # expand X w.r.t. F at gam(t)
-                Fp = np.zeros_like(F)
-                alpha = np.zeros_like(lam)
-
-                for i in range(3):
-                    Fp[:, i, ...] = self.transp(R, P, F[:, i, ...])
-                    alpha[:, i] = self.eleminner(P, Fp[:, i, ...], X)
-
-                # weights for the linear combination of the three basis elements
-                weights = weightfun(lam, t, self.elemdist(R, Q))
-
-                # evaluate the adjoint Jacobi field at R
-                a = weights * alpha
-                for i in range(3):
-                    F[:, i, ...] = vectime3d(a[:, i], F[:, i, ...])
-
-                return multiskew(np.sum(F, axis=1))
-
-        def lefttrans(self, R, Q):
-            """Left-translation of R by Q"""
-            return np.einsum('...ij,...jk', Q, R)
-
-        def righttrans(self, R, Q):
-            """Right translation of R by Q.
-            """
-            return np.einsum('...ij,...jk', R, Q)
+            # # gam(t)
+            # P = self.geopoint(R, Q, t)
+            #
+            # # orthonormal eigenvectors of the Jacobi operator that generate the parallel frame field along gam and the
+            # # eigenvalues
+            # lam, F = self.jacONB(R, Q)
+            #
+            # # expand X w.r.t. F at gam(t)
+            # Fp = jnp.zeros_like(F)
+            # alpha = jnp.zeros_like(lam)
+            #
+            # eleminner = lambda A, B: jnp.einsum('...ij,...ij', A, B)
+            # elemdist = lambda A, B: jnp.linalg.norm(logm(jnp.einsum('...ij,...kj', A, B)), axis=(1, 2))
+            #
+            # for i in range(3):
+            #     Fp = Fp.at[:, i, ...].set(self.transp(R, P, F[:, i, ...]))
+            #     alpha = alpha.at[:, i].set(eleminner(Fp[:, i, ...], X))
+            #
+            # # weights for the linear combination of the three basis elements
+            #
+            # weights = weightfun(lam, t, elemdist(R, Q))
+            #
+            # # evaluate the adjoint Jacobi field at R
+            # a = weights * alpha
+            # for i in range(3):
+            #     F = F.at[:, i, ...].set(vectime3d(a[:, i], F[:, i, ...]))
+            #
+            # return multiskew(np.sum(F, axis=1))
 
         def dleft(self, f, X):
             """Derivative of the left translation by f at e applied to the tangent vector X.
             """
-            return None
+            return jnp.einsum('...ij,...jk', f, X)
 
         def dright(self, f, X):
             """Derivative of the right translation by f at e applied to the tangent vector X.
             """
-            return None
+            return jnp.einsum('...ij,...jk', X, f)
 
         def dleft_inv(self, f, X):
             """Derivative of the left translation by f^{-1} at f applied to the tangent vector X.
             """
-            return None
+            return jnp.einsum('...ji,...jk', f, X)
 
         def dright_inv(self, f, X):
             """Derivative of the right translation by f^{-1} at f applied to the tangent vector X.
             """
-            return None
+            return jnp.einsum('...ij,...kj', X, f)
+
+        def lefttrans(self, R, X):
+            """Left-translation of X to the tangent space at R"""
+            return jnp.einsum('...ij,...jk', R, X)
+
+        def righttrans(self, g, f):
+            """Right translation of g by f.
+            """
+            return jnp.einsum('...ij,...jk', g, f)
 
         def inverse(self, g):
             """Inverse map of the Lie group.
             """
-            return None
+            return jnp.einsum('...ij->...ji', g)
 
         def coords(self, X):
             """Coordinate map for the tangent space at the identity."""
-            return None
+            x = X[:, 0, 1]
+            y = X[:, 0, 2]
+            z = X[:, 1, 2]
+            return jnp.hstack((x, y, z))
+
+        def coords_inverse(self, c):
+            """Inverse of coords"""
+            k = self._M._k
+            x, y, z = c[:k], c[k:2 * k], c[2 * k:]
+
+            X = jnp.zeros(self._M.point_shape)
+            X = X.at[:, 0, 1].set(x)
+            X = X.at[:, 1, 0].set(-x)
+            X = X.at[:, 0, 2].set(y)
+            X = X.at[:, 2, 0].set(-y)
+            X = X.at[:, 1, 2].set(z)
+            X = X.at[:, 2, 1].set(-z)
+            return X
 
         def bracket(self, X, Y):
             """Lie bracket in Lie algebra."""
@@ -438,21 +387,98 @@ def weightfun(k, t, d):
     :returns weight(s)
     """
     # eigenvalues are non-negative
-    w = np.sin((1 - t) * np.multiply(np.sqrt(k).T, d).T) / np.where(k == 0, 1, np.sin(np.multiply(np.sqrt(k).T, d).T))
+    w = jnp.sin((1 - t) * jnp.multiply(jnp.sqrt(k).T, d).T) / jnp.where(k == 0, 1,
+                                                                        jnp.sin(jnp.multiply(jnp.sqrt(k).T, d).T))
 
-    return np.where(w == 0, 1 - t, w)
-
-
-def exp_mat(U):
-    """Matrix exponential, only use for normal matrices, i.e., square matrices U with U * U^T = U^T * UU"""
-    vals, vecs = la.eig(U)
-    vals = np.exp(vals)
-    return np.real(np.einsum('...ij,...j,...kj', vecs, vals, vecs))
+    return jnp.where(w == 0, 1 - t, w)
 
 
-def log_mat(U):
-    """Matrix logarithm, only use for normal matrices, i.e., square matrices U with U * U^T = U^T * UU"""
-    vals, vecs = la.eig(U)
-    vals = np.log(vals)
+def logm(R):
+    decision_matrix = R.diagonal(axis1=1, axis2=2)
+    decision_matrix = jnp.hstack([decision_matrix, decision_matrix.sum(axis=1)[:, None]])
 
-    return np.real(np.einsum('...ij,...j,...kj', vecs, vals, vecs))
+    i = decision_matrix.argmax(axis=1)
+    j = (i + 1) % 3
+    k = (j + 1) % 3
+
+    q1 = jnp.empty_like(decision_matrix)
+    ind = jnp.arange(len(i))
+    q1 = q1.at[ind, i].set(1 - decision_matrix[:, -1] + 2 * R[ind, i, i])
+    q1 = q1.at[ind, j].set(R[ind, j, i] + R[ind, i, j])
+    q1 = q1.at[ind, k].set(R[ind, k, i] + R[ind, i, k])
+    q1 = q1.at[ind, 3].set(R[ind, k, j] - R[ind, j, k])
+
+    q2 = jnp.empty_like(decision_matrix)
+    q2 = q2.at[:, 0].set(R[:, 2, 1] - R[:, 1, 2])
+    q2 = q2.at[:, 1].set(R[:, 0, 2] - R[:, 2, 0])
+    q2 = q2.at[:, 2].set(R[:, 1, 0] - R[:, 0, 1])
+    q2 = q2.at[:, 3].set(1 + decision_matrix[:, -1])
+
+    quat = jnp.where((i == 3)[:, None], q2, q1)
+
+    quat = quat / jnp.linalg.norm(quat, axis=1)[:, None]
+    # w > 0 to ensure 0 <= angle <= pi
+    quat = quat * jnp.where(quat[:, 3] < 0, -1., 1.)[:, None]
+
+    def get_scale(s2):
+        s = jnp.sqrt(s2 + jnp.finfo(jnp.float64).eps)
+        angle = 2 * jnp.arctan2(s, quat[:, 3])
+        return angle / jnp.sin(angle / 2)
+
+    sin2 = jnp.sum(quat[:, :3] ** 2, axis=1)
+    scale = jnp.where(sin2 < 1e-6, 2.0, get_scale(sin2))
+    versors = scale[:, None] * quat[:, :3]
+    return jnp.einsum('ijk,...k', versor2skew, versors)
+
+
+def expm(X):
+    # X -> quaternion
+
+    def quaternion(sqn):
+        norms = jnp.sqrt(sqn + jnp.finfo(jnp.float64).eps)
+        scale = .5 * jnp.sin(norms / 2) / norms
+        x = scale * (X[..., 2, 1] - X[..., 1, 2])
+        y = scale * (X[..., 0, 2] - X[..., 2, 0])
+        z = scale * (X[..., 1, 0] - X[..., 0, 1])
+        w = jnp.cos(norms / 2)
+        return jnp.stack([x, y, z, w])
+
+    def quaternion_truncated(sqn):
+        scale = 0.25 - sqn / 96 + sqn ** 2 / 7680
+        x = scale * (X[..., 2, 1] - X[..., 1, 2])
+        y = scale * (X[..., 0, 2] - X[..., 2, 0])
+        z = scale * (X[..., 1, 0] - X[..., 0, 1])
+        w = 1 - sqn / 8 + sqn ** 2 / 384
+        return jnp.stack([x, y, z, w])
+
+    sq_norms = .5 * jnp.einsum('...ij,...ij', X, X)
+    x, y, z, w = jnp.where(sq_norms <= 1e-3 ** 2, quaternion_truncated(sq_norms), quaternion(sq_norms))
+
+    # to rotation matrix
+    x2 = x * x
+    y2 = y * y
+    z2 = z * z
+    w2 = w * w
+
+    xy = x * y
+    zw = z * w
+    xz = x * z
+    yw = y * w
+    yz = y * z
+    xw = x * w
+
+    matrix = jnp.zeros_like(X)
+
+    matrix = matrix.at[:, 0, 0].set(x2 - y2 - z2 + w2)
+    matrix = matrix.at[:, 1, 0].set(2 * (xy + zw))
+    matrix = matrix.at[:, 2, 0].set(2 * (xz - yw))
+
+    matrix = matrix.at[:, 0, 1].set(2 * (xy - zw))
+    matrix = matrix.at[:, 1, 1].set(w2 - x2 + y2 - z2)
+    matrix = matrix.at[:, 2, 1].set(2 * (yz + xw))
+
+    matrix = matrix.at[:, 0, 2].set(2 * (xz + yw))
+    matrix = matrix.at[:, 1, 2].set(2 * (yz - xw))
+    matrix = matrix.at[:, 2, 2].set(w2 - x2 - y2 + z2)
+
+    return matrix

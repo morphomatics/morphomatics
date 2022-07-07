@@ -18,10 +18,16 @@ class LieGroup(metaclass=abc.ABCMeta):
     Interface setting out a template for Lie group classes.
     """
 
+    @abc.abstractmethod
+    def __str__(self):
+        """Returns a string representation of the particular group."""
+
 #    @abc.abstractmethod
 #    def compose(self, g, f):
 #        """Group operation"""
 
+    @property
+    @abc.abstractmethod
     def identity(self):
         """Returns the identity element e of the Lie group."""
 

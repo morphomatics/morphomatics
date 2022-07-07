@@ -10,9 +10,12 @@
 #                                                                              #
 ################################################################################
 
-import numpy as np
-from scipy.linalg import logm, expm
+import jax
+import jax.numpy as jnp
+from jax.scipy.linalg import expm, funm
+
 from morphomatics.manifold import Manifold, LieGroup, Connection
+from morphomatics.manifold.util import randn_with_key
 
 
 class GLpn(Manifold):
@@ -53,17 +56,17 @@ class GLpn(Manifold):
     def rand(self):
         """Returns a random point in the Lie group. This does not
         follow a specific distribution."""
-        A = np.random.rand(self.k, self.n, self.n)
-        return A + np.tile(np.eye(self.n), (self.k, 1, 1))
+        A = randn_with_key((self.k, self.n, self.n))
+        return jax.vmap(expm)(A)
 
     def randvec(self, A):
         """Returns a random vector in the tangent space at A.
         """
-        return np.random.rand(self.k, self.n, self.n)
+        return randn_with_key((self.k, self.n, self.n))
 
     def zerovec(self):
         """Returns the zero vector in the tangent space at g."""
-        return np.zeros((self.k, self.n, self.n))
+        return jnp.zeros((self.k, self.n, self.n))
 
     def initAffineGroupStructure(self):
         """
@@ -91,93 +94,79 @@ class GLpn(Manifold):
 
         # Group
 
+        @property
         def identity(self):
             """Returns the identity element e of the Lie group."""
-            return np.tile(np.eye(self._G.n), (self._G.k, 1, 1))
+            return jnp.tile(jnp.eye(self._G.n), (self._G.k, 1, 1))
 
         def bracket(self, X, Y):
             """Lie bracket in Lie algebra."""
-            return np.einsum('kij,kjl->kil', X, Y) - np.einsum('kij,kjl->kil', Y, X)
+            return jnp.einsum('kij,kjl->kil', X, Y) - jnp.einsum('kij,kjl->kil', Y, X)
 
         def coords(self, X):
             """Coordinate map for the tangent space at the identity."""
-            return np.reshape(X, (self._G.k * self._G.n**2, 1))
+            return jnp.reshape(X, (self._G.k * self._G.n**2, 1))
 
         def lefttrans(self, g, f):
             """Left translation of g by f.
             """
-            return np.einsum('kij,kjl->kil', f, g)
+            return jnp.einsum('kij,kjl->kil', f, g)
 
         def righttrans(self, g, f):
             """Right translation of g by f.
             """
-            return np.einsum('kij,kjl->kil', g, f)
+            return jnp.einsum('kij,kjl->kil', g, f)
 
         def inverse(self, g):
             """Inverse map of the Lie group.
             """
-            return np.linalg.inv(g)
+            return jnp.linalg.inv(g)
 
         def exp(self, *argv):
             """Computes the Lie-theoretic and connection exponential map
             (depending on signature, i.e. whether footpoint is given as well)
             """
-            X = argv[-1]
-            g = np.array([expm(x) for x in X])
-            if len(argv) == 1: # group exp
-                return g
-            elif len(argv) == 2: # exp of CCS connection
-                return self.lefttrans(g, argv[0])
+            return jax.lax.cond(len(argv) == 1,
+                                lambda A: A[-1],  # group exp
+                                lambda A: jnp.einsum('...ij,...jk', A[-1], A[0]),  # exp of CCS connection
+                                (argv[0], jax.vmap(expm)(argv[-1])))
 
         def log(self, *argv):
             """Computes the Lie-theoretic and connection logarithm map
             (depending on signature, i.e. whether footpoint is given as well)
             """
-            g = argv[-1]
-            if len(argv) == 1: # group log
-                return np.array([logm(a) for a in g])
-            elif len(argv) == 2: # log of CCS connection
-                return np.array([logm(a) for a in self.lefttrans(g, self.inverse(argv[0]))])
+            # NOTE: as logm() is not available in jax we apply log via funm() (so far this is CPU only)
+            logm = lambda m: jnp.real(funm(m, jnp.log))
+            return jax.vmap(logm)(jax.lax.cond(len(argv) == 1,
+                                               lambda A: A[-1],
+                                               lambda A: jnp.einsum('...ij,...kj', A[-1], A[0]),
+                                               argv))
 
         def dleft(self, f, X):
             """Derivative of the left translation by f applied to the tangent vector X at the identity.
             """
-            return np.einsum('kij,kjl->kil', f, X)
+            return jnp.einsum('kij,kjl->kil', f, X)
 
         def dright(self, f, X):
             """Derivative of the right translation by f at g applied to the tangent vector X.
             """
-            return np.einsum('kij,kjl->kil', X, f)
+            return jnp.einsum('kij,kjl->kil', X, f)
 
         def dleft_inv(self, f, X):
             """Derivative of the left translation by f^{-1} at f applied to the tangent vector X.
             """
-            return np.einsum('kij,kjl->kil', self.inverse(f), X)
+            return jnp.einsum('kij,kjl->kil', self.inverse(f), X)
 
         def dright_inv(self, f, X):
             """Derivative of the right translation by f^{-1} at f applied to the tangent vector X.
             """
-            return np.einsum('kij,kjl->kil', X, self.inverse(f))
+            return jnp.einsum('kij,kjl->kil', X, self.inverse(f))
 
         def adjrep(self, g, X):
             """Adjoint representation of g applied to the tangent vector X at the identity.
             """
-            return np.einsum('kij,kjl,klm->kim', g, X, self.inverse(g))
-
-        def geopoint(self, g, h, t):
-            """
-            Evaluate the geodesic from g to h at time t.
-            """
-            return self.exp(g, t * self.log(g, h))
+            return jnp.einsum('kij,kjl,klm->kim', g, X, self.inverse(g))
 
         def transp(self, p, q, X):
-            #TODO
-            return
-
-        def jacobiField(self, p, q, t, X):
-            #TODO
-            return
-
-        def adjJacobi(self, p, q, t, X):
             #TODO
             return

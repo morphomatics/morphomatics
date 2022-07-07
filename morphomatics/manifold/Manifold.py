@@ -12,8 +12,7 @@
 
 import abc
 
-import numpy as np
-
+from morphomatics.manifold import Metric, Connection, LieGroup
 
 class Manifold(metaclass=abc.ABCMeta):
     """
@@ -21,15 +20,8 @@ class Manifold(metaclass=abc.ABCMeta):
     Morphomatics's Lie group and Riemannian manifold classes inherit from Manifold.
     """
 
-    def __init__(self, name, dimension, point_shape, connec=None, metric=None, group=None):
-        assert isinstance(dimension, (int, np.integer)), \
-            "dimension must be an integer"
-        # assert ((isinstance(point_shape, int) and point_shape > 0) or
-        #         (isinstance(point_shape, (list, tuple)) and
-        #          all(np.array(point_shape) > 0))), \
-        #     ("'point_shape' must be a positive integer or a sequence of "
-        #      "positive integers")
-
+    def __init__(self, name, dimension: int, point_shape,
+                 connec: Connection = None, metric: Metric = None, group: LieGroup = None):
         self._name = name
         self._dimension = dimension
         self._point_shape = point_shape
@@ -42,9 +34,9 @@ class Manifold(metaclass=abc.ABCMeta):
 
     def __str__(self):
         """Returns a string representation of the particular manifold."""
-        conf = 'metric=' + str(self._metric) if self._metric else ''
-        conf += ' connection=' + str(self._connec) if self._connec else ''
-        conf += ' group=' + str(self._group) if self._group else ''
+        conf = 'metric='+str(self._metric) if self._metric else ''
+        conf += ' connection='+str(self._connec) if self._connec else ''
+        conf += ' group='+str(self._group) if self._group else ''
         if not conf:
             return self._name
         return f'{self._name} ({conf.strip()})'
@@ -63,15 +55,15 @@ class Manifold(metaclass=abc.ABCMeta):
         return self._point_shape
 
     @property
-    def metric(self):
+    def metric(self) -> Metric:
         return self._metric
 
     @property
-    def connec(self):
+    def connec(self) -> Connection:
         return self._connec
 
     @property
-    def group(self):
+    def group(self) -> LieGroup:
         return self._group
 
     @abc.abstractmethod
@@ -105,12 +97,12 @@ class Manifold(metaclass=abc.ABCMeta):
         assert self.metric
 
         # initial guess
-        Pi = X
+        Pi = X.copy()
 
         # solver loop
         for _ in range(max_iter):
             v = self.connec.log(Pi, Y)
-            v /= self.metric.norm(Pi, v)
+            v = v / self.metric.norm(Pi, v)
             w = self.connec.log(Pi, P)
             d = self.metric.inner(Pi, v, w)
 

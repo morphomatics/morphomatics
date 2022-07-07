@@ -15,8 +15,8 @@ from setuptools import setup
 setup(
   name = 'morphomatics',
   packages = ['morphomatics', 'morphomatics.geom', 'morphomatics.manifold', 'morphomatics.stats'],
-  version = '1.1',
-  version_name = 'Curious Ceasar',
+  version = '2.0rc',
+  version_name = 'Accelerated Augustus',
   license='ZIB Academic License',
   description = 'Geometric morphometrics in non-Euclidean shape spaces',
   author = 'Christoph von Tycowicz et al.',
@@ -24,21 +24,20 @@ setup(
   url = 'https://morphomatics.github.io/',
   keywords = ['Shape Analysis', 'Morphometrics', 'Geometric Statistics'],
   install_requires=[
+          'jax>=0.3.14',
+          'jaxlib>=0.3.14',
           'numpy',
           'scipy',
-          'pymanopt==0.2.5',
-          'joblib',
-          'pyvista>=0.25',
-          'pyvistaqt'
+          'pymanopt>=1.0.0'
       ],
   classifiers=[
     'Development Status :: 4 - Beta',
     'Intended Audience :: Developers',
     'Topic :: Software Development :: Build Tools',
     'License :: ZIB Academic License',
-    'Programming Language :: Python :: 3',
-    'Programming Language :: Python :: 3.6',
     'Programming Language :: Python :: 3.7',
     'Programming Language :: Python :: 3.8',
+    'Programming Language :: Python :: 3.9',
+    'Programming Language :: Python :: 3.10',
   ],
 )

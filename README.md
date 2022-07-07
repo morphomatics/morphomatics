@@ -19,8 +19,9 @@ pip install git+https://github.com/morphomatics/morphomatics.git#egg=morphomatic
 ## Dependencies
 * numpy
 * scipy
-* joblib
+* jax/jaxlib
 * pymanopt
 
 Optional
 * sksparse
+git 

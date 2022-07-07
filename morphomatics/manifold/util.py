@@ -12,9 +12,10 @@
 
 
 import numpy as np
+import jax
+import jax.numpy as jnp
 
 from morphomatics.geom.surface import Surface
-
 
 def align(src, ref):
     """ (Constrained) Procrustes alignment of src to ref using Kabsch algorithm
@@ -68,6 +69,19 @@ def preshape(v):
     v /= np.linalg.norm(v)
     return v
 
+def multiprod(A: np.ndarray, B: np.ndarray) -> np.ndarray:
+    # vectorized matrix - matrix multiplication
+    return jnp.einsum('...ij,...jk', A, B)
+
+def multitransp(A):
+    # vectorized matrix transpose
+    return jnp.einsum('...ij->...ji', A)
+
+def multiskew(A):
+    return 0.5 * (A - jnp.einsum('...ij->...ji', A))
+
+def multisym(A):
+    return 0.5 * (A + jnp.einsum('...ij->...ji', A))
 
 def vectime3d(x, A):
     """
@@ -77,19 +91,19 @@ def vectime3d(x, A):
 
     In case of k=1, x * A is returned.
     """
-    if np.isscalar(x) and A.ndim == 2:
+    if jnp.isscalar(x) and A.ndim == 2:
         return x * A
 
-    x = np.atleast_2d(x)
-    assert x.ndim <= 2 and np.size(A.shape) == 3
+    x = jnp.atleast_2d(x)
+    assert x.ndim <= 2 and jnp.size(A.shape) == 3
     assert x.shape[0] == 1 or x.shape[1] == 1
     assert x.shape[0] == A.shape[0] or x.shape[1] == A.shape[0]
 
     if x.shape[1] == 1:
         x = x.T
-    A = np.einsum('kij->ijk', A)
-    return np.einsum('ijk->kij', x * A)
 
+    A = jnp.einsum('kij->ijk', A)
+    return jnp.einsum('ijk->kij', x * A)
 
 def gram_schmidt(A):
     """Orthogonalize a set of vectors stored as the columns of matrix A."""
@@ -100,7 +114,12 @@ def gram_schmidt(A):
         # previous vectors, subtract from it its projection onto
         # each of the previous vectors.
         for k in range(j):
-            A[:, j] -= np.dot(A[:, k], A[:, j]) * A[:, k]
-        A[:, j] = A[:, j] / np.linalg.norm(A[:, j])
+            A = A.at[:, j].set(A[:, j] - jnp.dot(A[:, k], A[:, j]) * A[:, k])
+        A = A.at[:, j].set(A[:, j] / jnp.linalg.norm(A[:, j]))
 
     return A
+
+def randn_with_key(point_shape):
+    """ Generate jax random array using numpy random key"""
+    key = jax.random.PRNGKey(np.random.randint(1 << 32))
+    return jax.random.normal(key, point_shape)

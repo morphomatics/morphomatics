@@ -12,6 +12,8 @@
 
 
 import numpy as np
+import jax
+import jax.numpy as jnp
 
 from pymanopt.manifolds.manifold import Manifold
 
@@ -35,6 +37,11 @@ class PrincipalGeodesicAnalysis(object):
         self.mfd = mfd
         N = len(data)
 
+        dual = False
+        if mfd.dim > N:
+            dual = True
+
+
         # assure mean
         if mu is None:
             mu = Mean.compute(mfd, data)
@@ -45,22 +52,63 @@ class PrincipalGeodesicAnalysis(object):
         ################################
 
         # map data to tangent space at mean
-        v = [mfd.connec.log(mu, x) for x in data]
+        #v = [mfd.connec.log(mu, x) for x in data]
+        v = jax.vmap(jax.jit(lambda x: mfd.connec.log(mu, x)))(data)
 
         # setup dual-covariance operator / (scaled) gram matrix
-        C = mfd.metric.inner(mu, v, v) / N #TODO: inner() does not support lists in general -> change to (parallel) for loops
+        # C = mfd.metric.inner(mu, v, v) / N #TODO: inner() does not support lists in general -> change to (parallel) for loops
 
+        if dual:
+            # setup dual covariance operator / (scaled) gram matrix
+            idx = jnp.triu_indices(N)
+            C = jnp.zeros((N,N))
+            C = C.at[idx].set(
+                jax.vmap(jax.jit(lambda i: mfd.metric.inner(mu, v[i[0]], v[i[1]]) / N))(idx))
+            C = (C.T + C) / (jnp.ones((N,N))+jnp.eye(N))
+
+            variances, modes, coeffs = self.compute_dual(C, v)
+        else:
+            # setup covariance operator
+            v_vec = v.reshape(N, -1)
+            C = 1/N * v_vec.T @ v_vec
+
+            variances, modes, coeffs = self.compute_cov(C, v_vec)
+
+        self._variances = variances
+        self._modes = modes
+        self._coeffs = coeffs
+
+    def compute_cov(self, C, v):
+        d = self.mfd.dim
         # decompose
-        vals, vecs = np.linalg.eigh(C)
+        vals, vecs = jnp.linalg.eigh(C)
 
         # set variance and modes
-        n = np.sum(vals > 1e-6)
+        n = jnp.sum(vals > 1e-6)
+        e = d - n - 1 if n<d else None # n<d (at least constant vector should be in kernel)
+        variances = vals[:e:-1]
+        modes = vecs[:,:e:-1].T.reshape((n,) + self.mfd.point_shape)
+
+        coeffs = v @ vecs[:,:e:-1]
+
+        return variances, modes, coeffs
+
+    def compute_dual(self, C, v):
+        N = C.shape[0]
+        # decompose
+        vals, vecs = jnp.linalg.eigh(C)
+
+        # set variance and modes
+        n = jnp.sum(vals > 1e-6)
         e = N - n - 1 if n<N else None # n<N (at least constant vector should be in kernel)
-        self._variances = vals[:e:-1]
-        self._modes = np.diag(1/np.sqrt(N*self._variances)) @ vecs[:,:e:-1].T @ v
+        variances = vals[:e:-1]
+        modes = jnp.diag(1/jnp.sqrt(N*variances)) @ vecs[:,:e:-1].T @ v.reshape(N,-1)
+        modes = modes.reshape((n,)+self.mfd.point_shape)
 
         # determine coefficients of input surfaces
-        self._coeffs = vecs[:,:e:-1] @ np.diag(np.sqrt(N*self._variances))
+        coeffs = vecs[:,:e:-1] @ jnp.diag(jnp.sqrt(N*variances))
+
+        return variances, modes, coeffs
 
     @property
     def mean(self):

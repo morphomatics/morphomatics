@@ -11,6 +11,7 @@
 ################################################################################
 
 import numpy as np
+import jax.numpy as jnp
 
 from scipy import sparse
 
@@ -41,19 +42,18 @@ class GLpCoords(ShapeSpace):
         """
         assert reference is not None
         self.ref = reference
+        k = len(self.ref.f)
 
         self.update_ref_geom(self.ref.v)
 
-        self.GLp = GLpn(self.ref.f.shape[0], structure='AffineGroup')
+        self.GLp = GLpn(k, structure='AffineGroup')
 
         name = 'Shape Space based on the orientation preserving component of the general linear group'
-        dimension = self.ref.f.shape[0] * 9
-        point_shape = [self.ref.v.shape[0], 3, 3]
-        super().__init__(name, dimension, point_shape, self.GLp.connec, None, self.GLp.group)
+        super().__init__(name, self.GLp.dim, self.GLp.point_shape, self.GLp.connec, None, self.GLp.group)
 
     @property
     def n_triangles(self):
-        return self.ref.f.shape[0]
+        return len(self.ref.f)
 
     def update_ref_geom(self, v):
         self.ref.v = v
@@ -95,7 +95,7 @@ class GLpCoords(ShapeSpace):
         # TODO: check which direction is normal in degenerate case
         S[S < 1e-6] = 1e-6
         U = np.einsum('...ij,...j,...kj', U, S, U)
-        return np.einsum('...ij,...jl', R, U)
+        return jnp.einsum('...ij,...jl', R, U)
 
     def from_coords(self, D):
         """
@@ -114,7 +114,7 @@ class GLpCoords(ShapeSpace):
     def ref_coords(self):
         """ Identity coordinates (i.e., the reference shape).
         """
-        return self.group.identity()
+        return self.group.identity
 
     def rand(self):
         """Random set of coordinates () won't represent a 'nice' shape).

@@ -12,15 +12,19 @@
 
 import numpy as np
 
-import scipy.integrate as integrate
+import jax
+import jax.numpy as jnp
 
 from morphomatics.manifold import Manifold
+from morphomatics.stats.RiemannianRegression import full_set, indep_set, sumOfSquared
+from morphomatics.manifold.ManoptWrap import ManoptWrap
 
-from joblib import Parallel, delayed
+import pymanopt
+from pymanopt import Problem
+from pymanopt.manifolds import Product
+from pymanopt.optimizers import SteepestDescent
 
 import time
-
-import copy
 
 from morphomatics.stats.RiemannianRegression import RiemannianRegression
 from morphomatics.stats import ExponentialBarycenter
@@ -37,28 +41,26 @@ class Bezierfold(Manifold):
         """
 
         :arg M: base manifold in which the curves lie
-        :arg degrees: array of degrees of the Bézier segments
+        :arg degrees: array of degrees of the Bézier segments – every segment must have the same degree
         """
-        assert M is not None
 
         self._M = M
 
-        self._degrees = np.atleast_1d(degrees)
+        self._degrees = jnp.atleast_1d(degrees)
 
         if isscycle:
-            name = 'Manifold of closed Bézier splines of degrees {d} through '.format(d=degrees) + M.__str__
-            # number of independent control points
-            K = np.sum(self._degrees) - 1
+            name = 'Manifold of closed Bézier splines of degrees {d} through '.format(d=degrees) + str(M)
+            K = jnp.sum(self._degrees - 1) - 1
         else:
-            name = 'Manifold of non-closed Bézier splines of degrees {d} through '.format(d=degrees) + M.__str__
-            K = np.sum(self._degrees)
+            name = 'Manifold of non-closed Bézier splines of degrees {d} through '.format(d=degrees) + str(M)
+            K = jnp.sum(self._degrees - 1) + 1
 
         dimension = (K + 1) * M.dim
         point_shape = [K, M.point_shape]
         self._K = K
         super().__init__(name, dimension, point_shape)
 
-        self._iscycle=isscycle
+        self._iscycle = isscycle
 
     def initFunctionalBasedStructure(self):
         """
@@ -87,7 +89,7 @@ class Bezierfold(Manifold):
 
     @property
     def K(self):
-        """Return the generalized degree of B, i.e., the number of independent control points - 1
+        """Return the generalized degree if a Bezier spline, i.e., the number of independent control points - 1
         """
         return self._K
 
@@ -99,30 +101,77 @@ class Bezierfold(Manifold):
 
     def correct_type(self, B: BezierSpline):
         """Check whether B has the right segment degrees"""
-        if B.nsegments != self.nsegments:
+        if jnp.all(jnp.atleast_1d(B.degrees) != self.degrees):
             return False
         else:
-            if np.all(np.atleast_1d(B.degrees) == self.degrees):
-                return True
-            else:
-                return False
+            return True
 
     def rand(self):
-        # TODO: sample control points from normal convex neighborhood
-        return
+        """Return random Bézier spline"""
+        return BezierSpline(self.M, full_set(self.M, jnp.array([self.M.rand() for k in self.K+1]),
+                                             self.degrees, self.iscycle))
 
-    def randvec(self, B:BezierSpline):
-        # TODO: sample random vectors at control points of B and compute corresponding generalized Jacobi field
-        return
+    def randvec(self, B: BezierSpline):
+        """Return random vector for every independent control point"""
+        return jnp.array([self.M.randvec(p) for p in indep_set(B, self.iscycle)])
 
     def zerovec(self):
-        # TODO: how to represent zero vector field?
-        return
+        """Return zero vector for every independent control point"""
+        return jnp.array([self.M.zerovec() for k in self.K+1])
+
+    def indep_cp_path(self, P):
+        """Returns concatenated sequence of independent control points of a discrete path
+        """
+        return jnp.concatenate(jnp.asarray([indep_set(p, self.iscycle) for p in P]))
+
+    def full_cp_path(self, P):
+        """Returns array of full control points of splines of a discrete path. The leading dimension enumerates the
+        splines.
+        """
+        # # compute discretization parameter
+        # if w_boundary:
+        #     n = int(len(P) / (self.K+1)) - 1
+        # else:
+        #     n = int(len(P) / (self.K+1)) + 1
+        #
+        # P = jnp.asarray(P)
+        # # reshape so that the splines are ordered along first axis
+        # if w_boundary:
+        #     P = P.reshape(n + 1, -1, *[dim for dim in self.M.point_shape])
+        # else:
+        #     P = P.reshape(n - 1, -1, *[dim for dim in self.M.point_shape])
+
+        # compute number of splines
+        l = int(len(P) / (self.K + 1))
+        # reshape so that the splines are ordered along first axis
+        P = P.reshape(l, self.K + 1, *[dim for dim in self.M.point_shape])
+
+        # full set of control points
+        P_ = []
+        for p in P:
+            P_.append(jnp.asarray(full_set(self.M, p, self.degrees, self.iscycle)))
+
+        return jnp.asarray(P_)
+
+    def grid(self, PP, t):
+        """Evaluate discrete path (i.e., set of splines) at common parameters
+        Parameters
+        ----------
+        PP: [k,..]-array of control points of k Bézier splines
+        t: 1-D array of parameters
+
+        Returns array of values of the splines corresponding to PP at times given in t
+        -------
+
+        """
+        G = []
+        for p in PP:
+            G.append(jax.vmap(lambda time: BezierSpline(self.M, p).eval(time))(t))
+        return jnp.asarray(G)
 
     class FunctionalBasedStructure(Metric, Connection):
         """
-        The Riemannian metric used is the induced metric from the embedding space (R^nxn)^k, i.e., this manifold is a
-        Riemannian submanifold of (R^3x3)^k endowed with the usual trace inner product.
+        Functional-based metric structure
         """
 
         def __init__(self, Bf):
@@ -135,7 +184,7 @@ class Bezierfold(Manifold):
         def __str__(self):
             return "Bezierfold-functional-based structure"
 
-        def inner(self, B:BezierSpline, X, Y):
+        def inner(self, B: BezierSpline, X, Y):
             """Functional-based metric
             Vector fields must be given as functions.
 
@@ -154,7 +203,7 @@ class Bezierfold(Manifold):
             :arg X: generalized Jacobi Field along B
             :return: norm of X
             """
-            return np.sqrt(self.inner(B, X, X))
+            return jnp.sqrt(self.inner(B, X, X))
 
         @property
         def typicaldist(self):
@@ -167,7 +216,7 @@ class Bezierfold(Manifold):
             :param A: Bézier spline
             :param B: Bézier spline
             :param n: work with discrete n-geodesic
-            :return: length of l-geodesic between alp and bet (approximation of the distance)
+            :return: length of n-geodesic between alp and bet (approximation of the distance)
             """
 
             Gam = self.discgeodesic(A, B, n=n)
@@ -175,126 +224,119 @@ class Bezierfold(Manifold):
             d = 0
             for i in range(len(Gam) - 1):
                 y, t = self.loc_dist(Gam[i], Gam[i + 1])
-                d += integrate.simps(y, t)
+                d = d + jnp.trapz(y, x=t)
 
             return d
 
-        def discgeodesic(self, A, B, n=5, eps=1e-10, nsteps=30, verbosity=1):
-            """Discrete shortest path through space of Bézier curves of same degrees
+        def discgeodesic(self, A, B, n=5, maxtime=1000, maxiter=30, mingradnorm=1e-6, minstepsize=1e-10,
+                         maxcostevals=5000, verbosity=0):
+            """Discrete shortest path through space of Bézier curves
 
-            :param A: Bézier spline in manifold M
-            :param B: Bézier spline in manifold M
+            :param A: Bézier spline in manifold M or control points thereof
+            :param B: Bézier spline in manifold M or control points thereof
             :param n: create discrete n-geodesic
-            :param eps: iteration stops when the difference in energy between the new and old iterate drops below eps
-            :param nsteps : maximal number of steps
-            :param verbosity: 0 (no text) or 1 (print information on convergence)
+            :param maxtime: see Pymanopt's solver class
+            :param maxiter: see Pymanopt's solver class
+            :param mingradnorm: see Pymanopt's solver class
+            :param minstepsize: see Pymanopt's solver class
+            :param maxcostevals: see Pymanopt's solver class
+            :param logverbosity: see Pymanopt's solver class (0 to 2)
             :return: control points of the Bézier splines along the shortest path
             """
-            assert self._Bf.correct_type(A) and self._Bf.correct_type(B)
 
-            def init_disc_curve(A, B, n):
+            PA = A.control_points if isinstance(A, BezierSpline) else A
+            PB = B.control_points if isinstance(B, BezierSpline) else B
+
+            def init_disc_curve():
                 """Initialize discrete curve by aligning control points along geodesics
-
-                :param A: Bézier spline
-                :param B: Bézier spline
-                :param n: discretization parameter
-                :return H: discrete curve from alp to bet as list of Bézier splines
+                :return: discrete curve as array of independent control points of Bézier splines (without A, B)
                 """
+                # only take independent control points
+                pa = indep_set(PA, iscycle=self._Bf.iscycle)
+                pb = indep_set(PB, iscycle=self._Bf.iscycle)
 
-                # initial discrete curve
-                H = [A]
+                # logs between corresponding control points of A and B (save repeated computations)
+                X = jnp.zeros(pa.shape)
+                for j in range(len(pa)):
+                    X = X.at[j].set(self._Bf.M.connec.log(pa[j], pb[j]))
 
+                H = []
                 # initialize control points along geodesics
                 for i in range(1, n):
-                    # go through segments
-                    P = []
-                    for l in range(self._Bf.nsegments):
-                        m = np.array(A.control_points[l].shape)
-                        # m[0] = self._Bf.degrees + 1
-                        # logs between corresponding control points
-                        X = np.zeros(m)
-                        for j in range(m[0]):
-                            X[j] = self._Bf.M.connec.log(A.control_points[l][j], B.control_points[l][j])
+                    P_i = jnp.zeros(pa.shape)
+                    for j in range(len(pa)):
+                        P_i = P_i.at[j].set(self._Bf.M.connec.exp(pa[j], i / n * X[j]))
 
-                        P_l = np.zeros(m)
-                        for j in range(m[0]):
-                            P_l[j] = self._Bf.M.connec.exp(A.control_points[0][j], i / n * X[j])
+                    # align all control points of splines along leading axis
+                    H.append(jnp.asarray(P_i))
 
-                        P.append(P_l)
-                    # i-th point (i.e., spline) of geodesic
-                    H.append(BezierSpline(self._Bf.M, P))
-                # add end point
-                H.append(B)
+                return jnp.concatenate(H)
 
-                return H
+            # initialize inner splines of path
+            H0 = init_disc_curve()
 
-            # initialize path
-            H = init_disc_curve(A, B, n)
-            # initialize parameters
-            Eold = self.disc_path_energy(H)
-            Enew = self.disc_path_energy(H)
-            step = 0
-            # optimize path
-            while (np.abs(Enew - Eold) > eps and step < nsteps) or step == 0:
-                step += 1
-                Eold = Enew
-                H_old = copy.deepcopy(H)
+            # Solve optimization problem with pymanopt by optimizing over independent control points
+            pymanoptM = ManoptWrap(self._Bf.M)
+            # there are n-1 inner splines
+            N = Product([pymanoptM] * (n-1) * (self._Bf.K + 1))
 
-                # cycle through inner splines
-                for i in range(1, n):
-                    # sample splines at so many discrete points as we have free control points
-                    #t = np.linspace(0, self._Bf.nsegments, num=int(np.sum(self._Bf.degrees + 1)))
-                    t = np.linspace(0, self._Bf.nsegments, num=self._Bf.K + 1)
-                    # we have two data sets with the same time points
-                    double_t = np.concatenate((t, t))
+            @jax.jit
+            def cost_(a, b):
+                return jnp.sum(jax.vmap(self._Bf.M.metric.squared_dist, in_axes=(0, 0), out_axes=0)(a, b))
 
-                    # evaluate preceding and succeeding splines at time points
-                    h1 = H[i - 1].eval(t)
-                    h2 = H[i + 1].eval(t)
-                    Y = np.concatenate((h1, h2))
-                    # solve regression problem for "middle spline"
-                    regression = RiemannianRegression(self._Bf.M, Y, double_t, self._Bf.degrees,
-                                                      verbosity=11 * verbosity)
+            @pymanopt.function.jax(N)
+            def cost(*P):
+                # TODO: I think we could jit the whole thing if we make the discretization parameter explicit here -> could be misused
+                Pfull = jnp.concatenate((jnp.expand_dims(PA, axis=0), self._Bf.full_cp_path(jnp.asarray(P)),
+                                         jnp.expand_dims(PB, axis=0)))
 
-                    H[i] = regression.trend
-                # update energy
-                Enew = self.disc_path_energy(H)
+                # sample splines at as many discrete points as we have free control points
+                t = jnp.linspace(0, self._Bf.nsegments, num=int(np.sum(self._Bf.degrees + 1)))
 
-                # check whether energy has increased
-                if Enew > Eold:
-                    print('Stopped computing discrete geodesic because the energy increased in step ' + str(step) + '.')
-                    return H_old
+                H = self._Bf.grid(Pfull, t)
 
-                if np.isnan(Enew):
-                    # repeat
-                    H = H_old
-                    print('Had to repeat because of Nan-value.')
-                else:
-                    if verbosity:
-                        print('Disc-Geo-Step', step, 'Energy:', Enew, 'Enew - Eold:', Enew - Eold)
+                c = 0
+                for i in range(len(H)):
+                    c = c + cost_(H[i], H[i+1])
 
-            return H
+                return c
 
-        def loc_dist(self, A: BezierSpline, B: BezierSpline, t=None):
+            problem = Problem(manifold=N, cost=cost)
+
+            solver = SteepestDescent(max_time=maxtime, max_iterations=maxiter, min_gradient_norm=mingradnorm,
+                                     min_step_size=minstepsize, max_cost_evaluations=maxcostevals,
+                                     log_verbosity=verbosity)
+
+            opt = solver.run(problem, initial_point=H0)
+
+            H_opt = self._Bf.full_cp_path(jnp.array(opt.point))
+
+            return jnp.concatenate((jnp.expand_dims(PA, axis=0), H_opt, jnp.expand_dims(PB, axis=0)))
+
+        def loc_dist(self, P, Q, t=None):
             """ Evaluate distance between two Bézier splines in M at several points
 
-            :param A: Bézier spline
-            :param B: Bézier spline
+            :param P: array with control points of a Bézier spline
+            :param Q: array with control points of Bézier spline
             :param t: vector with time points
+            The control points have the size [k, l,...] where k is the number of segments and l-1 the degree.
 
             :return: vector with point-wise distances
             """
+            A = BezierSpline(self._Bf.M, P, self._Bf.iscycle)
+            B = BezierSpline(self._Bf.M, Q, self._Bf.iscycle)
+
             if t is None:
                 # sample segments of higher degree more densely
-                t = np.linspace(0, 1, num=self._Bf.degrees[0] + 1)
+                t = jnp.linspace(0, 1, num=P.shape[1])
                 for i in range(1, A.nsegments):
-                    t = np.concatenate((t, np.linspace(i, i+1, num=self._Bf.degrees[i] + 1)[1:]))
+                    t = jnp.concatenate((t, jnp.linspace(i, i + 1, num=P.shape[1])[1:]))
 
-            a_val = A.eval(t)
-            b_val = B.eval(t)
-            d_M = np.zeros(len(t))
+            a_val = [A.eval(time) for time in t]
+            b_val = [B.eval(time) for time in t]
+            d_M = jnp.zeros(len(t))
             for i in range(len(t)):
-                d_M[i] = self._Bf.M.metric.dist(a_val[i], b_val[i])
+                d_M = d_M.at[i].set(self._Bf.M.metric.dist(a_val[i], b_val[i]))
             return d_M, t
 
         def disc_path_energy(self, H):
@@ -305,15 +347,17 @@ class Bezierfold(Manifold):
             """
             d = 0
             for i in range(len(H) - 1):
-                dh, _ = self.loc_dist(H[i], H[i + 1])
-                d += np.sum(dh ** 2, axis=0)
+                # dh, _ = self.loc_dist(H[i], H[i + 1])
+                # d = d + jnp.sum(dh ** 2, axis=0)
+                y, t = self.loc_dist(H[i], H[i + 1])
+                d = d + jnp.trapz(y, x=t)
 
             return d
 
         def mean(self, B, n=3, delta=1e-5, min_stepsize=1e-10, nsteps=20, eps=1e-5, n_stepsGeo=10, verbosity=1):
             """Discrete mean of a set of Bézier splines
 
-            :param B: list of Bézier splines
+            :param B: list of Bézier splines, every curve can have arbitrary many segments which must have the same degrees
             :param n: use discrete n-geodesics
             :param delta: iteration stops when the difference in energy between the new and old iterate drops below
             delta
@@ -324,62 +368,65 @@ class Bezierfold(Manifold):
             :param verbosity: 0 (no text) or 1 (print information on convergence)
             :return: mean curve
             """
-            for b in B:
-                assert self._Bf.correct_type(b)
 
             def legs(meaniterate):
                 """ Construct legs of polygonal spider, i.e., discrete n-geodesics between mean iterate and input curves
                 """
-                return Parallel(n_jobs=-1, prefer='threads', require='sharedmem')(delayed(self.discgeodesic)
-                                                                                  (meaniterate, b, n=n, eps=eps,
-                                                                                   nsteps=n_stepsGeo, verbosity=0)
-                                                                                  for b in B)
+                # TODO: make parallel
+                # def fun(b):
+                #     return self.discgeodesic(meaniterate, b, n=n)
 
-            def loss(FF):
+                F = []
+                for b_ in B:
+                    F.append(self.discgeodesic(meaniterate, b_, n=n))
+
+                return jnp.array(F)
+                #return jax.vmap(fun)(B)
+
+            @jax.jit
+            def loss(F):
                 """Loss in optimization for mean
                 """
-                G = 0
-                for HH in FF:
-                    G = G + self.disc_path_energy(HH)
-                return G
+                # G = 0
+                # for HH in FF:
+                #     G = G + self.disc_path_energy(HH)
+                # return G
+                return jnp.sum(jax.vmap(self.disc_path_energy)(F))
 
             # measure computation time
             begin_mean = time.time()
 
+            B = extract_control_points(B)
+
             # initialize i-th control point of the mean as the mean of the i-th control points of the data
             C = ExponentialBarycenter
             P = []
-            # loop through segments
-            for l in range(self._Bf.nsegments):
-                # get shape of array of control points
-                m = np.array(B[0].control_points[l].shape)
-                # m[0] = self._Bf.degrees + 1
 
-                P_l = np.zeros(m)
-                for i in range(self._Bf.degrees[l] + 1):
+            # loop through segments
+            m = jnp.array(B[0, 0].shape)
+            for l in range(self._Bf.nsegments):
+                P_l = jnp.zeros(m)
+                for i in range(self._Bf.degrees[0] + 1):
                     D = []
                     # take the i-th control point of the l-th segment from all data curves
                     for bet in B:
-                        D.append(bet.control_points[l][i])
+                        D.append(bet[l, i])
 
                     # initialize i-th control point of the l-th segment as mean of corresponding data control points
-                    P_l[i] = C.compute(self._Bf.M, D)
+                    P_l = P_l.at[i].set(C.compute(self._Bf.M, jnp.array(D)))
 
                 P.append(P_l)
-
-
-            # initial guess
-            # bet_mean = B[0]
-            bet_mean = BezierSpline(self._Bf.M, P)
+            P_mean_iterate = jnp.array(P)
 
             # initial legs
-            F = legs(bet_mean)
+            F = legs(P_mean_iterate)
+            bet_mean = BezierSpline(self._Bf.M, P_mean_iterate, self._Bf.iscycle)
             # initialize stopping parameters
             Eold = 10
             Enew = 1
             stepsize = 10
             step = 0
-            while np.abs(Enew - Eold) > delta and stepsize > min_stepsize and step <= nsteps:
+            while jnp.abs(Enew - Eold) > delta and stepsize > min_stepsize and step <= nsteps:
                 # one more step
                 step += 1
                 # save old "stopping parameters"
@@ -389,23 +436,24 @@ class Bezierfold(Manifold):
 
                 # new data for regression
                 # sample splines at so many discrete points as we have free control points
-                #t = np.linspace(0, self._Bf.nsegments, num=int(np.sum(self._Bf.degrees + 1)))
-                t = np.linspace(0, self._Bf.nsegments, num=self._Bf.K + 1)
+                # t = jnp.linspace(0, self._Bf.nsegments, num=int(np.sum(self._Bf.degrees + 1)))
+                t = jnp.linspace(0, self._Bf.nsegments, num=self._Bf.K + 1)
                 Y = []
 
                 for H in F:
                     # evaluate first "joint" at t
-                    Y.append(H[1].eval(t))
+                    bet = BezierSpline(self._Bf.M, H[1])
+                    Y.append(jnp.array([bet.eval(time) for time in t]))
 
                 # make regression w.r.t. mean values -> faster
-                mean_Y = np.zeros_like(Y[0])
+                mean_Y = jnp.zeros_like(Y[0])
                 for i in range(len(mean_Y)):
                     dat = []
                     for j in range(len(Y)):
                         # take value of each curve at time t_i
                         dat.append(Y[j][i])
                     # mean at t_i if first joints
-                    mean_Y[i] = C.compute(self._Bf.M, dat)
+                    mean_Y = mean_Y.at[i].set(C.compute(self._Bf.M, jnp.array(dat)))
 
                 if verbosity == 2:
                     print('Step ' + str(step) + ': Updating the mean...')
@@ -436,9 +484,10 @@ class Bezierfold(Manifold):
 
                 # compute step size
                 step_size = 0
-                for i, p in enumerate(bet_mean.control_points[0]):
-                    step_size += self._Bf.M.metric.dist(p, old_mean.control_points[0][i]) ** 2
-                stepsize = np.sqrt(step_size)
+                for l, P in enumerate(bet_mean.control_points):
+                    for j, p in enumerate(P):
+                        step_size = step_size + self._Bf.M.metric.dist(p, old_mean.control_points[l][j]) ** 2
+                stepsize = jnp.sqrt(step_size)
 
                 if verbosity > 0:
                     print('Mean-Comp-Step', step, 'Energy:', Enew, 'Enew - Eold:', Enew - Eold)
@@ -475,13 +524,13 @@ class Bezierfold(Manifold):
                 print('Computing Gram matrix...')
 
             n = len(F)
-            G = np.zeros((n, n))
+            G = jnp.zeros((n, n))
             for i, si in enumerate(F):
                 for j, sj in enumerate(F[i:], start=i):
-                    G[i, j] = n / 2 * (
+                    G = G.at[i, j].set(n / 2 * (
                             self.dist(B_mean, si[1], n=1) ** 2 + self.dist(B_mean, sj[1], n=1) ** 2
-                            - self.dist(si[1], sj[1], n=1) ** 2)
-                    G[j, i] = G[i, j]
+                            - self.dist(si[1], sj[1], n=1) ** 2))
+                    G = G.at[j, i].set(G[i, j])
 
             return G, B_mean, F
 
@@ -494,7 +543,7 @@ class Bezierfold(Manifold):
             return
 
         def proj(self, X, H):
-            #TODO
+            # TODO
             return
 
         egrad2rgrad = proj
@@ -524,3 +573,21 @@ class Bezierfold(Manifold):
 
         def adjJacobi(self, R, Q, t, X):
             return
+
+
+def extract_control_points(B):
+    """ Extract array of control points from Bézier splines
+
+    Parameters
+    ----------
+    B set of Bézier splines of same type
+
+    Returns array of corresponding control points
+    -------
+
+    """
+    P = []
+    for b in B:
+        P.append(b.control_points)
+
+    return jnp.array(P)

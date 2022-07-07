@@ -10,11 +10,11 @@
 #                                                                              #
 ################################################################################
 
-import numpy as np
+import jax.numpy as jnp
 
 from ..geom import Surface
 from . import ShapeSpace, Metric, Connection
-from .util import align
+from .util import align, randn_with_key
 
 
 class PointDistributionModel(ShapeSpace, Metric, Connection):
@@ -56,7 +56,10 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
         return self.ref.v.copy().reshape(-1)
 
     def dist(self, p, q):
-        return self.norm(p, self.log(p, q))
+        return jnp.sqrt(self.squared_dist(p, q))
+
+    def squared_dist(self, p, q):
+        return jnp.sum((p-q)**2)
 
     def inner(self, p, X, Y):
         """
@@ -64,7 +67,7 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
         :arg Y: (list of) tangent vector(s) at p
         :returns: inner product at p between G and H, i.e. <X,Y>_p
         """
-        return X @ np.asanyarray(Y).T
+        return X @ Y.T
 
     def proj(self, p, X):
         return X
@@ -83,15 +86,12 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
     def log(self, p, q):
         return q - p
 
-    def geopoint(self, p, q, t):
-        return self.exp(p, t * self.log(p, q))
-
     def rand(self):
-        v = np.random.randn(self.ref.v.shape)
+        v = randn_with_key(self.ref.v.shape)
         return self.to_coords(v)
 
     def zerovec(self):
-        np.zeros(self.ref.v.shape)
+        jnp.zeros(self.ref.v.shape)
 
     def transp(self, p, q, X):
         return X
@@ -106,7 +106,7 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
         """
         return (1-t) * X
 
-    def adjJacobi(self, p, q, t, X):
+    def eval_adjJacobi(self, p, q, t, X):
         """
         :param p: point
         :param q: point
@@ -114,23 +114,7 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
         :param X: vector at gam(p,q,t)
         :return: vector at p
         """
-        if t == 0:
-            return X
-        elif t == 1:
-            return np.zeros_like(X)
-
         return X / (1.0 - t)
-
-    def adjDxgeo(self, p, q, t, X):
-        assert p.shape == q.shape == X.shape and np.isscalar(t)
-
-        return self.adjJacobi(p, q, t, X)
-
-    def adjDygeo(self, p, q, t, X):
-        assert p.shape == p.shape == X.shape and np.isscalar(t)
-
-        return self.adjJacobi(q, p, 1 - t, X)
-
 
     def projToGeodesic(self, p, q, m):
         '''
@@ -139,3 +123,7 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
         :returns: manifold coords of projection of P to X->Y
         '''
         return super().projToGeodesic(p, q, m, max_iter=1)
+
+    def coords(self, X):
+        """Coordinate map of the tangent space at the identity"""
+        return X.reshape(-1)

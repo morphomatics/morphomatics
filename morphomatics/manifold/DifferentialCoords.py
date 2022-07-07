@@ -11,6 +11,7 @@
 ################################################################################
 
 import numpy as np
+import jax.numpy as jnp
 
 from scipy import sparse
 
@@ -36,7 +37,7 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
     Medical Image Analysis, Volume 43, January 2018.
     """
 
-    def __init__(self, reference: Surface, structure='product', commensuration_weights=(1.0, 1.0)):
+    def __init__(self, reference: Surface, commensuration_weights=(1.0, 1.0)):
         """
         :arg reference: Reference surface (shapes will be encoded as deformations thereof)
         :arg commensuration_weights: weights (rotation, stretch) for commensuration between rotational and stretch parts
@@ -49,23 +50,16 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         self.update_ref_geom(self.ref.v)
 
         # rotation and stretch manifolds
-        self.SO = SO3(self.ref.f.shape[0])
-        self.SPD = SPD(self.ref.f.shape[0])
+        self.SO = SO3(len(self.ref.f))
+        self.SPD = SPD(len(self.ref.f))
 
-        name = f'Differential Coordinates Shape Space ({structure})'
+        name = f'Differential Coordinates Shape Space'
         dimension = self.SO.dim + self.SPD.dim
-        point_shape = [2, self.ref.f.shape[0], 3, 3]
+        point_shape = (2, len(self.ref.f), 3, 3)
         super().__init__(name, dimension, point_shape, self, self, None)
 
-    @property
     def __str__(self):
         return self._name
-
-    @property
-    def n_triangles(self):
-        """Number of triangles of the reference surface
-        """
-        return self.ref.f.shape[0]
 
     def update_ref_geom(self, v):
         self.ref.v=v
@@ -79,9 +73,13 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         S += sparse.coo_matrix(([1.0], ([0], [0])), S.shape)  # make pos-def
         self.poisson = direct_solve(S.tocsc())
 
-        # setup mass matrix (weights for each triangle)
-        diag = np.repeat(self.ref.face_areas, 18).reshape(-1, 2) @ np.diag(self.commensuration_weights)
-        self.mass = sparse.diags(diag.T.flatten(), 0)
+        # # setup mass matrix (weights for each triangle)
+        # diag = np.outer(np.repeat(self.ref.face_areas, 9), self.commensuration_weights)
+        # self.mass = sparse.diags(diag.T.flatten(), 0)
+        # -> single weight for each triangle -> use broadcasting instead of sparse matrix product
+        mass = np.outer(self.commensuration_weights, self.ref.face_areas)
+        self.mass = jnp.array(mass).reshape(mass.shape+(1,1))
+
 
     def disentangle(self, c):
         """
@@ -89,8 +87,9 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         :returns: de-vectorized tuple of rotations and stretches (skew-sym. and sym. matrices)
         """
         # 2xkx3x3 array, rotations are stored in [0, :, :, :] and stretches in [1, :, :, :]
-        m = len(self.ref.f)
-        return c.reshape(-1, 3, 3)[:m], c.reshape(-1, 3, 3)[m:]
+        # m = len(self.ref.f)
+        # return c.reshape(-1, 3, 3)[:m], c.reshape(-1, 3, 3)[m:]
+        return c[0], c[1]
 
     def entangle(self, R, U):
         """
@@ -99,7 +98,8 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         :arg U: stretch components
         :returns: concatenated and vectorized version
         """
-        return np.concatenate([R, U]).reshape(-1)
+        # return np.concatenate([R, U]).reshape(-1)
+        return jnp.array([R, U])
 
     def to_coords(self, v):
         """
@@ -141,7 +141,7 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         """
         # compose
         R, U = self.disentangle(c)
-        D = np.einsum('...ij,...jk', U, R)  # <-- from left polar decomp.
+        D = jnp.einsum('...ij,...jk', U, R)  # <-- from left polar decomp.
 
         # solve Poisson system
         rhs = self.ref.div @ D.reshape(-1, 3)
@@ -153,12 +153,10 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
 
     @property
     def ref_coords(self):
-        return np.tile(np.eye(3), (2*len(self.ref.f), 1)).reshape(-1)
+        return jnp.tile(jnp.eye(3), (2*len(self.ref.f), 1)).reshape(self.point_shape)
 
     def rand(self):
-        R = self.SO.rand()
-        U = self.SPD.rand()
-        return self.entangle(R, U)
+        return self.entangle(self.SO.rand(), self.SPD.rand())
 
     def zerovec(self):
         """Returns the zero vector in any tangent space."""
@@ -177,12 +175,10 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         :arg P: manifold coords to be projected to X->Y.
         :returns: manifold coords of projection of P to X->Y
         '''
-        assert X.shape == Y.shape
-        assert Y.shape == P.shape
 
         # all tagent vectors in common space i.e. algebra
         v = self.connec.log(X, Y)
-        v /= self.metric.norm(X, v)
+        v = v / self.metric.norm(X, v)
 
         # initial guess
         Pi = X
@@ -208,21 +204,28 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         manifold."""
         return self.norm(X, self.log(X, Y))
 
+    def squared_dist(self, X, Y):
+        """Returns the geodesic distance between two points p and q on the
+        manifold."""
+        d = self.log(X, Y)
+        return self.inner(X, d, d)
+
     @property
     def typicaldist(self):
-        return np.sqrt(self.SO.metric.typicaldist()**2 + self.SPD.metric.typicaldist()**2)
+        return jnp.sqrt(self.SO.metric.typicaldist()**2 + self.SPD.metric.typicaldist()**2)
 
     def inner(self, X, G, H):
         """
-        :arg G: (list of) tangent vector(s) at X
-        :arg H: (list of) tangent vector(s) at X
+        :arg G: tangent vector at X
+        :arg H: tangent vector at X
         :returns: inner product at X between G and H, i.e. <G,H>_X
         """
-        return G @ self.mass @ np.asanyarray(H).T
+        # return G @ self.mass @ np.asanyarray(H).T
+        return (self.mass * H).reshape(-1) @ G.reshape(-1)
 
     def proj(self, X, A):
         """orthogonal (with respect to the euclidean inner product) projection of ambient
-        vector (vectorized (2,k,3,3) array) onto the tangentspace at X"""
+        vector (i.e. (2,k,3,3) array) onto the tangentspace at X"""
         # disentangle coords. into rotations and stretches
         R, U = self.disentangle(X)
         r, u = self.disentangle(A)
@@ -231,11 +234,11 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         r = self.SO.metric.proj(R, r)
         u = self.SPD.metric.proj(U, u)
 
-        return np.concatenate([r, u]).reshape(-1)
+        return self.entangle(r,u)
 
     def egrad2rgrad(self, X, D):
-        """converts euclidean gradient(vectorized (2,k,3,3) array))
-        into riemannian gradient, vectorized inputs!"""
+        """converts Euclidean gradient (i.e. (2,k,3,3) array))
+        into Riemannian gradient"""
         # disentangle coords. into rotations and stretches
         R, U = self.disentangle(X)
         r, u = self.disentangle(D)
@@ -243,10 +246,10 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         # componentwise
         r = self.SO.metric.egrad2rgrad(R, r)
         u = self.SPD.metric.egrad2rgrad(U, u)
-        grad = np.concatenate([r, u]).reshape(-1)
+        grad = self.entangle(r, u)
 
         # multiply with inverse mass matrix
-        grad /= self.mass.diagonal()
+        grad = grad / self.mass
 
         return grad
 
@@ -265,38 +268,15 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         # disentangle coords. into rotations and stretches
         R, U = self.disentangle(X)
         r, u = self.disentangle(G)
-
-        # alloc coords.
-        Y = np.zeros_like(X)
-        Ry, Uy = self.disentangle(Y)
-
-        # exp R1
-        Ry[:] = self.SO.connec.exp(R, r)
-        # exp U (avoid additional exp/log)
-        Uy[:] = self.SPD.connec.exp(U, u)
-
-        return Y
+        return self.entangle(self.SO.connec.exp(R, r), self.SPD.connec.exp(U, u))
 
     retr = exp
-
-    def geopoint(self, X, Y, t):
-        return self.exp(X, t * self.log(X, Y))
 
     def log(self, X, Y):
         # disentangle coords. into rotations and stretches
         Rx, Ux = self.disentangle(X)
         Ry, Uy = self.disentangle(Y)
-
-        # alloc tangent vector
-        y = np.zeros(X.size)
-        r, u = self.disentangle(y)
-
-        # log R1
-        r[:] = self.SO.connec.log(Rx, Ry)
-        # log U (avoid additional log/exp)
-        u[:] = self.SPD.connec.log(Ux, Uy)
-
-        return y
+        return self.entangle(self.SO.connec.log(Rx, Ry), self.SPD.connec.log(Ux, Uy))
 
     def transp(self, X, Y, G):
         """
@@ -309,15 +289,7 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         Rx, Ux = self.disentangle(X)
         Ry, Uy = self.disentangle(Y)
         rx, ux = self.disentangle(G)
-
-        # alloc coords.
-        Y = np.zeros_like(X)
-        ry, uy = self.disentangle(Y)
-
-        ry[:] = self.SO.connec.transp(Rx, Ry, rx)
-        uy[:] = self.SPD.connec.transp(Ux, Uy, ux)
-
-        return Y
+        return self.entangle(self.SO.connec.transp(Rx, Ry, rx), self.SPD.connec.transp(Ux, Uy, ux))
 
     def jacobiField(self, p, q, t, X):
         """Evaluates a Jacobi field (with boundary conditions gam(0) = X, gam(1) = 0) along the geodesic gam from p to q.
@@ -327,7 +299,11 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         :param X: tangent vector at p
         :return: tangent vector at gam(t)
         """
-        raise NotImplementedError()
+        # disentangle coords. into rotations and stretches
+        Rp, Up = self.disentangle(p)
+        Rq, Uq = self.disentangle(q)
+        r, u = self.disentangle(X)
+        return self.entangle(self.SO.connec.jacobiField(Rp, Rq, t, r), self.SPD.connec.jacobiField(Up, Uq, t, u))
 
     def adjJacobi(self, X, Y, t, G):
         """
@@ -338,68 +314,20 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         :param G: tangent vector at gam(t)
         :return: tangent vector at X
         """
-
-        assert X.shape == Y.shape and X.shape == G.shape
-
-        if t == 0:
-            return G
-        elif t == 1:
-            return np.zeros_like(G)
-
         # disentangle coords. into rotations and stretches
         Rx, Ux = self.disentangle(X)
         Ry, Uy = self.disentangle(Y)
-
         r, u = self.disentangle(G)
+        return self.entangle(self.SO.connec.adjJacobi(Rx, Ry, t, r), self.SPD.connec.adjJacobi(Ux, Uy, t, u))
 
-        j = np.zeros_like(G)
-        jr, js = self.disentangle(j)
+    def coords(self, X):
+        """Coordinate map for the tangent space at the identity"""
+        X = self.disentangle(X)
+        x, y = self.SO.connec.coords(X[0]), self.SPD.connec.coords(X[1])
+        return np.hstack((x, y))
 
-        # SO(3) part
-        jr[:] = self.SO.connec.adjJacobi(Rx, Ry, t, r)
-        # Sym+(3) part
-        js[:] = self.SPD.connec.adjJacobi(Ux, Uy, t, u)
-
-        return j
-
-    def adjDxgeo(self, X, Y, t, G):
-        """Evaluates the adjoint of the differential of the geodesic gamma from X to Y w.r.t the starting point X at G,
-        i.e, the adjoint  of d_X gamma(t; ., Y) applied to G, which is en element of the tangent space at gamma(t).
-        """
-        return self.adjJacobi(X, Y, t, G)
-
-    def adjDygeo(self, X, Y, t, G):
-        """Evaluates the adjoint of the differential of the geodesic gamma from X to Y w.r.t the endpoint Y at G,
-        i.e, the adjoint  of d_Y gamma(t; X, .) applied to G, which is en element of the tangent space at gamma(t).
-        """
-        return self.adjJacobi(Y, X, 1 - t, G)
-
-    # def jacop(self, X, Y, r):
-    #     """ Evaluate the Jacobi operator along the geodesic from X to Y at r.
-    #
-    #     For the definition of the Jacobi operator see:
-    #         Rentmeesters, Algorithms for data fitting on some common homogeneous spaces, p. 74.
-    #
-    #     :param X: element of the space of differential coordinates
-    #     :param Y: element of the space of differential coordinates
-    #     :param r: tangent vector at the rotational part of X
-    #     :returns: skew-symmetric part of J_G(H)
-    #     """
-    #     v, w = self.disentangle(self.log(X, Y))
-    #     w[:] = 0 * w
-    #     v = 1 / 4 * (-np.einsum('...ij,...jk,...kl', v, v, r) + 2 * np.einsum('...ij,...jk,...kl', v, r, v)
-    #                  - np.einsum('...ij,...jk,...kl', r, v, v))
-    #
-    #     return v
-    #
-    # def jacONB(self, X, Y):
-    #     """
-    #     Let J be the Jacobi operator along the geodesic from X to Y. This code diagonalizes J. Note that J restricted
-    #     to the Sym+ part is the zero operator.
-    #     :param X: element of the space of differential coordinates
-    #     :param Y: element of the space of differential coordinates
-    #     :returns lam, G: eigenvalues and orthonormal eigenbasis of  the rotational part of J at X
-    #     """
-    #     Rx, Ux = self.disentangle(X)
-    #     Ry, Uy = self.disentangle(Y)
-    #     return self.SO.jacONB(Rx, Ry)
+    def coords_inverse(self, c):
+        """Inverse of coords (SO coordinates come first)"""
+        d = self.SO.dim
+        a, b = self.SO.connec.coords_inverse(c[:d]), self.SPD.connec.coords_inverse(c[d:])
+        return self.entangle(a, b)

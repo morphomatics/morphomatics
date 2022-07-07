@@ -12,6 +12,7 @@
 
 import os
 import numpy as np
+import jax.numpy as jnp
 
 from scipy import sparse
 
@@ -63,7 +64,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
 
         name = f'Fundamental Coordinates Shape Space ({structure})'
         dimension = self.SO.dim + self.SPD.dim
-        point_shape = [2, self.ref.f.shape[0], 3, 3]
+        point_shape = (len(self.mass),)
         super().__init__(name, dimension, point_shape, self, self, None)
 
     def __str__(self):
@@ -73,7 +74,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
     def n_triangles(self):
         """Number of triangles of the reference surface
         """
-        return self.ref.f.shape[0]
+        return len(self.ref.f)
 
     def update_ref_geom(self, v):
         self.ref.v=v
@@ -93,8 +94,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         faceAreaFactor = np.divide(self.ref.face_areas, np.sum(self.ref.face_areas))
 
         # setup mass matrix (weights for each triangle and inner edge)
-        diag = np.concatenate((self.metric_weights[0] * np.repeat(edgeAreaFactor, 9), self.metric_weights[1] * np.repeat(faceAreaFactor, 4)), axis=None)
-        self.mass = sparse.diags(diag, 0)
+        self.mass = jnp.concatenate((self.metric_weights[0] * np.repeat(edgeAreaFactor, 9), self.metric_weights[1] * np.repeat(faceAreaFactor, 4)), axis=None)
 
         self._identity = self.to_coords(self.ref.v)
 
@@ -103,9 +103,17 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         :arg c: vectorized fundamental coords. (tangent vectors)
         :returns: de-vectorized tuple of rotations and stretches (skew-sym. and sym. matrices)
         """
-        # 2xkx3x3 array, rotations are stored in [0, :, :, :] and stretches in [1, :, :, :]
         e = int(0.5 * self.ref.inner_edges.getnnz())
         return c[:9*e].reshape(-1, 3, 3), c[9*e:].reshape(-1, 2, 2)
+
+    def entangle(self, R, U):
+        """
+        Inverse of #disentangle().
+        :arg R: rotational components
+        :arg U: stretch components
+        :returns: concatenated and vectorized version
+        """
+        return jnp.concatenate([R.ravel(), U.ravel()]).reshape(-1)
 
     def to_coords(self, v):
         """
@@ -147,7 +155,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         Ulocal = np.einsum('...ji,...jk,...kl', self.ref_frame_field, U, self.ref_frame_field)
         Ulocal = Ulocal[:,0:-1, 0:-1]
 
-        return np.concatenate([np.ravel(C), np.ravel(Ulocal)]).reshape(-1)
+        return self.entangle(C, Ulocal)
 
     def from_coords(self, c):
         """
@@ -156,7 +164,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         """
         ################################################################################################################
         # initialization with spanning tree path #######################################################################
-        C, Ulocal = self.disentangle(c)
+        C, Ulocal = self.disentangle(np.asarray(c))
 
         eIds = self.spanning_tree_path[:,0]
         fsourceId = self.spanning_tree_path[:, 1]
@@ -266,15 +274,12 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         :returns: manifold coords of projection of P to X->Y
         '''
 
-        assert X.shape == Y.shape
-        assert Y.shape == P.shape
-
         # all tagent vectors in common space i.e. algebra
         v = self.connec.log(X, Y)
-        v /= self.metric.norm(X, v)
+        v = v / self.metric.norm(X, v)
 
         # initial guess
-        Pi = X
+        Pi = X.copy()
 
         # solver loop
         for _ in range(max_iter):
@@ -299,7 +304,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
 
     @property
     def typicaldist(self):
-        return np.sqrt(self.SO.metric.typicaldist()**2 + self.SPD.metric.typicaldist()**2)
+        return jnp.sqrt(self.SO.metric.typicaldist()**2 + self.SPD.metric.typicaldist()**2)
 
     def inner(self, X, G, H):
         """
@@ -307,7 +312,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         :arg H: (list of) tangent vector(s) at X
         :returns: inner product at X between G and H, i.e. <G,H>_X
         """
-        return G @ self.mass @ np.asanyarray(H).T
+        return jnp.sum(G * self.mass * H)
 
     def proj(self, X, A):
         """orthogonal (with respect to the euclidean inner product) projection of ambient
@@ -320,7 +325,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         r = self.SO.metric.proj(R, r)
         u = self.SPD.metric.proj(U, u)
 
-        return np.concatenate([r, u]).reshape(-1)
+        return self.entangle(r, u)
 
     def egrad2rgrad(self, X, D):
         """converts euclidean gradient(vectorized (2,k,3,3) array))
@@ -332,10 +337,10 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         # componentwise
         r = self.SO.metric.egrad2rgrad(R, r)
         u = self.SPD.metric.egrad2rgrad(U, u)
-        grad = np.concatenate([r, u]).reshape(-1)
+        grad = self.entangle(r, u)
 
         # multiply with inverse of metric
-        grad /= self.mass.diagonal()
+        grad = grad / self.mass
 
         return grad
 
@@ -354,20 +359,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         # disentangle coords. into rotations and stretches
         C, U = self.disentangle(X)
         c, u = self.disentangle(G)
-
-        # alloc coords.
-        Y = np.zeros_like(X)
-        Cy, Uy = self.disentangle(Y)
-
-        # exp C
-        Cy[:] = self.SO.connec.exp(C, c)
-        # exp U (avoid additional exp/log)
-        Uy[:] = self.SPD.connec.exp(U, u)
-
-        return Y
-
-    def geopoint(self, X, Y, t):
-        return self.exp(X, t * self.log(X, Y))
+        return self.entangle(self.SO.connec.exp(C, c), self.SPD.connec.exp(U, u))
 
     retr = exp
 
@@ -375,17 +367,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         # disentangle coords. into rotations and stretches
         Cx, Ux = self.disentangle(X)
         Cy, Uy = self.disentangle(Y)
-
-        # alloc tangent vector
-        y = np.zeros(9 * int(0.5 * self.ref.inner_edges.getnnz()) + 4 * len(self.ref.f))
-        c, u = self.disentangle(y)
-
-        # log R1
-        c[:] = self.SO.connec.log(Cx, Cy)
-        # log U (avoid additional log/exp)
-        u[:] = self.SPD.connec.log(Ux, Uy)
-
-        return y
+        return self.entangle(self.SO.connec.log(Cx, Cy), self.SPD.connec.log(Ux, Uy))
 
     def transp(self, X, Y, G):
         """
@@ -398,15 +380,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         Cx, Ux = self.disentangle(X)
         Cy, Uy = self.disentangle(Y)
         cx, ux = self.disentangle(G)
-
-        # alloc coords.
-        Y = np.zeros_like(X)
-        cy, uy = self.disentangle(Y)
-
-        cy[:] = self.SO.connec.transp(Cx, Cy, cx)
-        uy[:] = self.SPD.connec.transp(Ux, Uy, ux)
-
-        return Y
+        return self.entangle(self.SO.connec.transp(Cx, Cy, cx), self.SPD.connec.transp(Ux, Uy, ux))
 
     def jacobiField(self, p, q, t, X):
         """Evaluates a Jacobi field (with boundary conditions gam(0) = X, gam(1) = 0) along the geodesic gam from p to q.
@@ -416,82 +390,27 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         :param X: tangent vector at p
         :return: tangent vector at gam(t)
         """
-        raise NotImplementedError()
+        # disentangle coords. into rotations and stretches
+        Rp, Up = self.disentangle(p)
+        Rq, Uq = self.disentangle(q)
+        r, u = self.disentangle(X)
+        return self.entangle(self.SO.connec.jacobiField(Rp, Rq, t, r), self.SPD.connec.jacobiField(Up, Uq, t, u))
 
     def adjJacobi(self, X, Y, t, G):
         """
         Evaluates an adjoint Jacobi field along the geodesic gam from X to Z at X.
-        :param X: element of the space of fundamental coordinates
-        :param Y: element of the space of fundamental coordinates
+        :param X: element of the space of differential coordinates
+        :param Y: element of the space of differential coordinates
         :param t: scalar in [0,1]
         :param G: tangent vector at gam(t)
         :return: tangent vector at X
         """
-
-        # assert X.shape == Y.shape and X.shape == G.shape
-
-        if t == 0:
-            return G
-        elif t == 1:
-            return np.zeros_like(G)
-
         # disentangle coords. into rotations and stretches
-        Cx, Ux = self.disentangle(X)
-        Cy, Uy = self.disentangle(Y)
+        Rx, Ux = self.disentangle(X)
+        Ry, Uy = self.disentangle(Y)
+        r, u = self.disentangle(G)
+        return self.entangle(self.SO.connec.adjJacobi(Rx, Ry, t, r), self.SPD.connec.adjJacobi(Ux, Uy, t, u))
 
-        c, u = self.disentangle(G)
-
-        j = np.zeros_like(G)
-        jr, js = self.disentangle(j)
-
-        # SO(3) part
-        jr[:] = self.SO.connec.adjJacobi(Cx, Cy, t, c)
-        # Sym+(3) part
-        js[:] = self.SPD.connec.adjJacobi(Ux, Uy, t, u)
-
-        return j
-
-    def adjDxgeo(self, X, Y, t, G):
-        """Evaluates the adjoint of the differential of the geodesic gamma from X to Y w.r.t the starting point X at G,
-        i.e, the adjoint  of d_X gamma(t; ., Y) applied to G, which is en element of the tangent space at gamma(t).
-        """
-        return self.adjJacobi(X, Y, t, G)
-
-    def adjDygeo(self, X, Y, t, G):
-        """Evaluates the adjoint of the differential of the geodesic gamma from X to Y w.r.t the endpoint Y at G,
-        i.e, the adjoint  of d_Y gamma(t; X, .) applied to G, which is en element of the tangent space at gamma(t).
-        """
-        return self.adjJacobi(Y, X, 1 - t, G)
-
-    # def jacop(self, X, Y, r):
-    #     """ Evaluate the Jacobi operator along the geodesic from X to Y at r.
-    #
-    #     For the definition of the Jacobi operator see:
-    #         Rentmeesters, Algorithms for data fitting on some common homogeneous spaces, p. 74.
-    #
-    #     :param X: element of the space of fundamental coordinates
-    #     :param Y: element of the space of fundamental coordinates
-    #     :param r: tangent vector at the rotational part of X
-    #     :returns: skew-symmetric part of J_G(H)
-    #     """
-    #     v, w = self.disentangle(self.log(X, Y))
-    #     w[:] = 0 * w
-    #     v = 1 / 4 * (-np.einsum('...ij,...jk,...kl', v, v, r) + 2 * np.einsum('...ij,...jk,...kl', v, r, v)
-    #                  - np.einsum('...ij,...jk,...kl', r, v, v))
-    #
-    #     return v
-    #
-    # def jacONB(self, X, Y):
-    #     """
-    #     Let J be the Jacobi operator along the geodesic from X to Y. This code diagonalizes J. Note that J restricted
-    #     to the Sym+ part is the zero operator.
-    #     :param X: element of the space of fundamental coordinates
-    #     :param Y: element of the space of fundamental coordinates
-    #     :returns lam, G: eigenvalues and orthonormal eigenbasis of  the rotational part of J at X
-    #     """
-    #     Cx, Ux = self.disentangle(X)
-    #     Cy, Uy = self.disentangle(Y)
-    #     return self.SO.jacONB(Cx, Cy)
 
     def setup_spanning_tree_path(self):
         """
@@ -569,7 +488,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         :param X: element of the space of fundamental coordinates
         :returns: Flattened configuration.
         """
-        _, Ulocal = self.disentangle(X)
+        _, Ulocal = self.disentangle(np.asarray(X))
 
         inner_edge = sparse.triu(self.ref.inner_edges)
 

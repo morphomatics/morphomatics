@@ -11,15 +11,10 @@
 ################################################################################
 
 
-import numpy as np
-from joblib import Parallel, delayed
-from joblib import parallel_backend
-
+import jax
+import jax.numpy as jnp
 
 from morphomatics.manifold import Manifold
-#from pymanopt.solvers import SteepestDescent
-#from pymanopt import Problem
-
 
 class ExponentialBarycenter(object):
     """
@@ -31,10 +26,10 @@ class ExponentialBarycenter(object):
     """
 
     @staticmethod
-    def compute(mfd: Manifold, data, x=None, max_iter=10, n_jobs=-1):
+    def compute(mfd: Manifold, data, x=None, max_iter=10):
         """
         :arg mfd: data space in which mean is computed
-        :arg data: list of data points
+        :arg data: array of data points
         :arg x: initial guess
         :returns: mean of data, i.e. exp. barycenter thereof
         """
@@ -44,25 +39,17 @@ class ExponentialBarycenter(object):
         if x is None:
             x = data[0].copy() #TODO: better guess -> choose most central sample
 
-        # compute intrinsic mean
-        #cost = lambda a: 0.5 / len(data) * np.sum([mfd.metric.dist(a, b) ** 2 for b in data])
-        #grad = lambda a: np.sum([mfd.connec.log(a, b) for b in data], axis=0) / len(data)
-        # hess = lambda a, b: b
-        # problem = Problem(manifold=mfd, cost=cost, grad=grad, hess=hess, verbosity=2)
-        # x = SteepestDescent(maxiter=max_iter).solve(problem, x=x)
-
         # Newton-type fixed point iteration
-        with Parallel(n_jobs=n_jobs, prefer='threads', verbose=0) as parallel:
-            grad = lambda a: np.sum(parallel(delayed(mfd.connec.log)(a, b) for b in data), axis=0) / len(data)
-            for _ in range(max_iter):
-                g = grad(x)
-                if mfd.metric:
-                    g_norm = mfd.metric.norm(x, -g)
-                else:
-                    g_norm = np.linalg.norm(-g)
-                print(f'|grad|={g_norm}')
-                if g_norm < 1e-12: break
-                x = mfd.connec.exp(x, g)
+        grad = jax.jit(lambda a: jnp.sum(jax.vmap(lambda b: mfd.connec.log(a, b))(data), axis=0) / len(data))
+        for _ in range(max_iter):
+            g = grad(x)
+            if mfd.metric:
+                g_norm = mfd.metric.norm(x, -g)
+            else:
+                g_norm = jax.numpy.linalg.norm(-g)
+            print(f'|grad|={g_norm}')
+            if g_norm < 1e-12: break
+            x = mfd.connec.exp(x, g)
 
         return x
 
@@ -79,4 +66,5 @@ class ExponentialBarycenter(object):
         if x is None:
             x = ExponentialBarycenter.compute(mfd, data)
 
-        return np.sum([mfd.metric.dist(x, y) ** 2 for y in data]) / len(data)
+        #return np.sum([mfd.metric.dist(x, y) ** 2 for y in data]) / len(data)
+        return jnp.sum(jax.vmap(lambda y: mfd.metric.dist(x, y) ** 2)(data)) / len(data)

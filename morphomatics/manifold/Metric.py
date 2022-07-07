@@ -12,7 +12,7 @@
 
 import abc
 
-import numpy as np
+import jax.numpy as jnp
 
 class Metric(metaclass=abc.ABCMeta):
     """
@@ -35,6 +35,9 @@ class Metric(metaclass=abc.ABCMeta):
     def dist(self, p, q):
         """Returns the geodesic distance between two points p and q on the
         manifold."""
+
+    def squared_dist(self, p, q):
+        return self.dist(p, q)**2
 
     @abc.abstractmethod
     def inner(self, p, X, Y):
@@ -71,4 +74,4 @@ class Metric(metaclass=abc.ABCMeta):
         """Computes the norm of a tangent vector X in the tangent space at
         p.
         """
-        return np.sqrt(self.inner(p, X, X))
+        return jnp.sqrt(self.inner(p, X, X))

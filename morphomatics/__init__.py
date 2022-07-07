@@ -10,9 +10,4 @@
 #                                                                              #
 ################################################################################
 
-__version__ = '1.0'
-__version_name__ = 'Curious Ceasar'
-
-import morphomatics.geom
-import morphomatics.manifold
-import morphomatics.stats
+__version__ = '0.1.dev0'

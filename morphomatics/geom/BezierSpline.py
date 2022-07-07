@@ -12,13 +12,20 @@
 
 import numpy as np
 
+import jax
+import jax.numpy as jnp
+from jax import jit
+import jax.lax as lax
+
+
 class BezierSpline:
     """Manifold-valued spline that consists of Bézier curves"""
 
     def __init__(self, M, control_points, iscycle=False):
         """
         :arg M: manifold in which the curve lies
-        :arg control_points: list of arrays of control points of the Bézier spline sorted along the first axis. The l-th
+        :arg control_points: list of arrays of control points of the Bézier spline sorted along the first axis. All
+        segments must have the same degree.
         entry of the list belongs to the l-th segment of the spline.
         :arg iscycle: boolean indicating whether B is a closed curve
         """
@@ -26,7 +33,7 @@ class BezierSpline:
 
         self._M = M
 
-        self.control_points = control_points
+        self.control_points = jnp.array(control_points)
 
         self.iscycle = iscycle
 
@@ -41,9 +48,9 @@ class BezierSpline:
     @property
     def degrees(self):
         """Returns the degrees of the spline segments."""
-        K = len(self.control_points)
-        n_seg = np.zeros(K, dtype=int)
-        for i in range(K):
+        L = len(self.control_points)
+        n_seg = np.zeros(L, dtype=int)
+        for i in range(L):
             n_seg[i] = np.shape(self.control_points[i])[0] - 1
         return n_seg
 
@@ -98,7 +105,7 @@ class BezierSpline:
                         v = self._M.connec.log(B[ii], A[ii+1])
                         # rescale
                         v = v / self._M.metric.norm(B[ii], v) * self._M.metric.dist(bet.control_points[ii],
-                                                                      bet.control_points[ii + 1])
+                                                                                    bet.control_points[ii + 1])
                         Y[i] += v
                         # add transported old vectors
                         # X[i] 'forward' X[i+1] 'backward'
@@ -121,7 +128,7 @@ class BezierSpline:
                     # new point is on geodesic between old control points -> log to endpoint shortened tangent vector
                     v = self._M.connec.log(P[ii], P_old[ii+1])
                     # rescale
-                    X[ii] = v / self._M.connec.norm(P[ii], v) * self._M.metric.dist(P_old[ii], P_old[ii+1])
+                    X[ii] = v / self._M.connec.norm(P[ii], v) * self._M.metric.dist(P_old[ii], P_old[ii + 1])
 
                 # there are k+1 control points
                 for l in range(k):
@@ -187,23 +194,15 @@ class BezierSpline:
         Some manifolds allow faster implementations than this generic one; e.g., Sym+."""
         return self._M.connec.exp(p, self._M.connec.log(p, q) * t)
 
-    def eval(self, time=np.linspace(0, 1, 100)):
-        """Evaluates the Bézier spline at one or more points."""
-        time = np.atleast_1d(time)
-        # Spline is defined for t in [0, nsegments]
-        assert all(0 <= time) and all(time <= self.nsegments)
 
-        l = len(time)
-        size = np.shape(self.control_points[0][0])
-        Q = np.zeros(np.append(l, size))
-        for i, t in enumerate(time):
-            # choose correct control points
-            ind, t = self.segmentize(t)
-            P = self.control_points[ind]
+    def eval(self, t: float):
+        """Evaluates the Bézier spline at time t."""
 
-            Q[i] = decasteljau(self._M, P, t)
+        # choose correct control points
+        ind, t = self.segmentize(t)
+        P = self.control_points[ind]
 
-        return Q if l > 1 else Q[0]
+        return decasteljau(self._M, P, t)[0]
 
     def adjDpB(self, t, X):
         """Compute the value of the adjoint derivative of a Bézier curve B with respect to its control points applied
@@ -212,19 +211,20 @@ class BezierSpline:
         :param X: tangent vector at B(t)
         :return: vectors at the control points
         """
-        assert X.shape == self.control_points[0][0].shape and np.isscalar(t)
 
         M = self._M
         siz = list(X.shape)
+        # insert 1 in front
         siz.insert(0, 1)
 
         # t indicates which element of P to choose
         ind, t = self.segmentize(t)
         P = self.control_points[ind]
 
+        # number of control points of corresponding segment
         k = len(P)
 
-        b, B = decasteljau(M, P, t, return_intermediate=True)
+        b, B = decasteljau(M, P, t)
         # want to go backwards from B(t) to control points
         B.reverse()
 
@@ -233,54 +233,68 @@ class BezierSpline:
         s = siz.copy()
         for i in range(1, len(B) + 1):
             s[0] = i + 1
-            D.append(np.zeros(s))
+            D.append(jnp.zeros(s))
 
         # transport X backwards along the "tree of geodesics" defined by the generalized de Casteljau algorithm.
         # We iterate over the depth of the tree and add vectors from the same tangent space.
         for i in range(k-1):
             if i == 0:
-                D_old = np.zeros(siz)
-                D_old[0] = X
+                D_old = jnp.zeros(siz)
+                D_old = D_old.at[0].set(X)
             else:
                 D_old = D[i - 1]
 
             siz = np.array(D_old.shape)
             siz[0] *= 2
-            D_tilde = np.zeros(siz)
+            D_tilde = jnp.zeros(siz)
             for jj in range(siz[0] // 2):
                 # transport to starting point of the geodesic
-                D_tilde[2 * jj] = M.connec.adjDxgeo(B[i][jj], B[i][jj + 1], t, D_old[jj])
+                D_tilde = D_tilde.at[2 * jj].set(M.connec.adjDxgeo(B[i][jj], B[i][jj + 1], t, D_old[jj]))
                 # and to the endpoint
-                D_tilde[2 * jj + 1] = M.connec.adjDygeo(B[i][jj], B[i][jj + 1], t, D_old[jj])
+                D_tilde = D_tilde.at[2 * jj + 1].set(M.connec.adjDygeo(B[i][jj], B[i][jj + 1], t, D_old[jj]))
 
-            D[i][0] = D_tilde[0]
-            D[i][-1] = D_tilde[-1]
+            D[i] = D[i].at[0].set(D_tilde[0])
+            D[i] = D[i].at[-1].set(D_tilde[-1])
 
             # add up vectors
             for jj in range(1, D[i].shape[0] - 1):
-                D[i][jj] = D_tilde[2 * jj - 1] + D_tilde[2 * jj]
+                D[i] = D[i].at[jj].set(D_tilde[2 * jj - 1] + D_tilde[2 * jj])
 
-        return D[-1]
+        # return D[-1]
+
+        grad = jnp.zeros_like(self.control_points)
+
+        # update the entries corresponding to the ind-th segment
+        grad = grad.at[ind].set(D[-1])
+
+        return grad
 
     def segmentize(self, t):
         """Choose the correct segment and value for the parameter t
         :param t: scalar in [0, nsegments]
         :return: index of corresponding control points in self.control_points and the adjusted value of t in [0,1]
         """
-        assert 0 <= t <= self.nsegments
 
-        # choose correct control points
-        if t == 0:
-            ind = 0
-        elif t == np.round(t):
-            ind = t - 1
-            ind = ind.astype(int)
-            t = 1
-        else:
-            ind = np.floor(t).astype(int)
-            t = t - np.floor(t)
+        # # choose correct control points
+        # if t == 0:
+        #     ind = 0
+        # elif t == np.round(t):
+        #     ind = t - 1
+        #     ind = ind.astype(int)
+        #     t = 1
+        # else:
+        #     ind = np.floor(t).astype(int)
+        #     t = t - np.floor(t)
+        def startpoint(t):
+            return int(0), t
 
-        return ind, t
+        def connecting_point(t):
+            return t.astype(int) - 1, 1.
+
+        def inner_point(t):
+            return jnp.floor(t).astype(int), t - jnp.floor(t)
+
+        return lax.cond(t == 0, startpoint, lambda s: lax.cond(t == jnp.round(t), connecting_point, inner_point, s), t)
 
 
 def decasteljau(M, P, t, return_intermediate=False):
@@ -288,50 +302,61 @@ def decasteljau(M, P, t, return_intermediate=False):
     :param M: manifold
     :param P: control points
     :param t: scalar in [0,1]
-    :param return_intermediate: If True, return return intermediate points of the de Casteljau algorithm.
+    :param return_intermediate: If True, return intermediate points of the de Casteljau algorithm.
     :return  P, (B): result of the de Casteljau algorithm with control points P, (intermediate points B in the algorithm)
     """
     def single_layer(A, t):
         # averaging of a single layer in de Casteljau algorithm
-        size = np.array(np.shape(A))
+        # size = np.array(np.shape(A))
         # give back one point less
-        size[0] = size[0] - 1
-        Bl = np.zeros(size)
-        for i in range(size[0]):
-            # B[i] = self.geopoint(A[..., i], A[..., i + 1], t)
-            Bl[i] = M.connec.exp(A[i], M.connec.log(A[i], A[i + 1]) * t)
-        return Bl
+        # size[0] = size[0] - 1
+        # Bl = np.zeros(size)
+        Bl = []
+        for i in range(A.shape[0] - 1):
+            Bl.append(M.connec.exp(A[i], M.connec.log(A[i], A[i + 1]) * t))
+        return jnp.array(Bl)
 
     # number of control points
     k = len(P)
-    B = [np.array(P)]
+    B = [jnp.array(P)]
 
     # easy cases
-    if t == 0:
-        if return_intermediate:
-            for l in range(1, k-1):
-                # do not take uppermost control point
-                B.append(P[:-l])
-            return P[0], B
-        else:
-            return P[0]
-    elif t == 1:
-        if return_intermediate:
-            for l in range(1, k-1):
-                # do not take lowermost control point
-                B.append(P[l:])
-            return P[-1], B
-        else:
-            return P[-1]
+    # if t == 0:
+    #     if return_intermediate:
+    #         for l in range(1, k-1):
+    #             # do not take uppermost control point
+    #             B.append(P[:-l])
+    #         return P[0], B
+    #     else:
+    #         return P[0]
+    # elif t == 1:
+    #     if return_intermediate:
+    #         for l in range(1, k-1):
+    #             # do not take lowermost control point
+    #             B.append(P[l:])
+    #         return P[-1], B
+    #     else:
+    #         return P[-1]
 
     # computations are neccessary
     for l in range(k - 1):
         P = single_layer(P, t)
         B.append(P)
 
-    if return_intermediate:
-        # last entry is B(t) = P
-        B.pop(-1)
-        return P[0], B
-    else:
-        return P[0]
+    # def body_func(i, A):
+    #     A = single_layer(A, t)
+    #     # save intermediate points
+    #     B.append(A)
+    #     return A
+
+    # P = lax.fori_loop(0, k-1, body_func, P)
+    B.pop(-1)
+
+    # if return_intermediate:
+    #     # last entry is B(t) = P
+    #     B.pop(-1)
+    #     return P[0], B
+    # else:
+    #     return P[0]
+
+    return P[0], B
