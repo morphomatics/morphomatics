@@ -14,6 +14,7 @@ import functools
 
 import jax
 import jax.numpy as jnp
+import jax.tree_util as tree
 
 import pymanopt
 from pymanopt.autodiff.backends._backend import Backend
@@ -128,7 +129,7 @@ class ManoptWrap(Manifold):
 def conjugate_result(function):
     @functools.wraps(function)
     def wrapper(*args, **kwargs):
-        return list(map(jnp.conj, function(*args, **kwargs)))
+        return tree.tree_map(jnp.conj, function(*args, **kwargs))
 
     return wrapper
 
@@ -148,6 +149,7 @@ class JaxBackend(Backend):
     @Backend._assert_backend_available
     def generate_gradient_operator(self, function, num_arguments):
         gradient = conjugate_result(
+            jax.grad(function) if num_arguments == 1 else
             jax.grad(function, argnums=list(range(num_arguments)))
         )
         return gradient
