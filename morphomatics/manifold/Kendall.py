@@ -13,7 +13,6 @@
 import numpy as np
 from typing import Sequence
 
-import jax
 import jax.numpy as jnp
 
 from morphomatics.manifold import ShapeSpace, Metric, Connection, Sphere
@@ -170,7 +169,7 @@ class Kendall(ShapeSpace):
         egrad2rgrad = proj
 
         def ehess2rhess(self, p, G, H, X):
-            """ Convert the Euclidean gradient G and Hessian H of a function at
+            """ Convert the Euclidean gradient P_G and Hessian H of a function at
             a point p along a tangent vector X to the Riemannian Hessian
             along X on the manifold.
             """
@@ -185,6 +184,14 @@ class Kendall(ShapeSpace):
         def log(self, p, q):
             q = Kendall.wellpos(p, q)
             return self._S.connec.log(p, q)
+
+        def curvature_tensor(self, p, X, Y, Z):
+            """Evaluates the curvature tensor R of the connection at p on the vectors X, Y, Z. With nabla_X Y denoting
+            the covariant derivative of Y in direction X and [] being the Lie bracket, the convention
+                R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
+            is used.
+            """
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def geopoint(self, p, q, t):
             return self.exp(p, t * self.log(p, q))

@@ -76,9 +76,9 @@ class RiemannianRegression(object):
         pymanoptM = ManoptWrap(M)
         # Solve optimization problem with pymanopt by optimizing over independent control points
         if iscycle:
-            N = Product([pymanoptM] * np.sum(degrees - 1))
+            N = Product([pymanoptM] * int(np.sum(degrees - 1)))
         else:
-            N = Product([pymanoptM] * (np.sum(degrees - 1) + 2))
+            N = Product([pymanoptM] * int(np.sum(degrees - 1) + 2))
 
         # Cost
         cost_ = jax.jit(lambda cp, Y_, t_: sumOfSquared(BezierSpline(M, cp, iscycle=iscycle), Y_, t_))

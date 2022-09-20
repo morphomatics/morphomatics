@@ -42,7 +42,7 @@ class ManoptWrap(Manifold):
 
     def inner_product(self, X, G, H):
         """Returns the inner product (i.e., the Riemannian metric) between two
-        tangent vectors `G` and `H` in the tangent space at `X`.
+        tangent vectors `P_G` and `H` in the tangent space at `X`.
         """
         return self._M.metric.inner(X, G, H)
 
@@ -53,19 +53,19 @@ class ManoptWrap(Manifold):
         return self._M.metric.dist(X, Y)
 
     def projection(self, X, G):
-        """Projects a vector `G` in the ambient space on the tangent space at
+        """Projects a vector `P_G` in the ambient space on the tangent space at
         `X`.
         """
         return self._M.metric.proj(X, G)
 
     def euclidean_to_riemannian_gradient(self, X, G):
-        """Maps the Euclidean gradient G in the ambient space on the tangent
+        """Maps the Euclidean gradient P_G in the ambient space on the tangent
         space of the manifold at X.
         """
         return self._M.metric.egrad2rgrad(X, G)
 
     def norm(self, X, G):
-        """Computes the norm of a tangent vector `G` in the tangent space at
+        """Computes the norm of a tangent vector `P_G` in the tangent space at
         `X`.
         """
         return self._M.metric.norm(X, G)

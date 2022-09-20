@@ -129,7 +129,7 @@ class SE3(Manifold):
 
         def coords(self, X):
             """Coordinate map for the tangent space at the identity."""
-            x123 = jnp.stack((X[:, 0, 1], X[:, 0, 2], X[:, 1, 2]))
+            x123 = jnp.stack((X[:, 0, 1], X[:, 0, 2], X[:, 1, 2])) * 2**.5
             x456 = X[:, :3, 3].transpose()
             x = jnp.concatenate((x123, x456), axis=0)
             return x.reshape((-1, 1), order='F')
@@ -144,7 +144,6 @@ class SE3(Manifold):
             return self._GLp4.group.adjrep(P, X)
 
         def retr(self, R, X):
-            # TODO
             return self.exp(R, X)
 
         def exp(self,  *argv):
@@ -162,8 +161,16 @@ class SE3(Manifold):
             """
             return logm(jax.lax.cond(len(argv) == 1,
                                      lambda A: A[-1],
-                                     lambda A: jnp.einsum('...ij,...kj', A[-1], A[0]),
+                                     lambda A: jnp.einsum('...ij,...jk', A[-1], self.inverse(A[0])),
                                      argv))
+
+        def curvature_tensor(self, p, X, Y, Z):
+            """Evaluates the curvature tensor R of the connection at p on the vectors X, Y, Z. With nabla_X Y denoting
+            the covariant derivative of Y in direction X and [] being the Lie bracket, the convention
+                R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
+            is used.
+            """
+            raise NotImplementedError('This function has not been implemented yet.')
 
         @property
         def identity(self):
@@ -177,8 +184,7 @@ class SE3(Manifold):
             :param X: tangent vector at P
             :return: parallel transport of X at S
             """
-            # TODO
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def pairmean(self, P, S):
             return self.exp(P, 0.5 * self.log(P, S))

@@ -24,4 +24,3 @@ pip install git+https://github.com/morphomatics/morphomatics.git#egg=morphomatic
 
 Optional
 * sksparse
-git 

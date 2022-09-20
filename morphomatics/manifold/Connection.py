@@ -46,6 +46,14 @@ class Connection(metaclass=abc.ABCMeta):
         tangent space at p to the tangent space at q.
         """
 
+    @abc.abstractmethod
+    def curvature_tensor(self, p, X, Y, Z):
+        """Evaluates the curvature tensor R of the connection at p on the vectors X, Y, Z. With nabla_X Y denoting the
+        covariant derivative of Y in direction X and [] being the Lie bracket, the convention
+            R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
+        is used.
+        """
+
     def jacobiField(self, p, q, t, X):
         """Evaluates a Jacobi field (with boundary conditions gam(0) = X, gam(1) = 0) along the geodesic gam from p to q.
         :param p: element of the Riemannian manifold

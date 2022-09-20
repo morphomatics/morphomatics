@@ -89,13 +89,13 @@ class Sphere(Manifold):
         egrad2rgrad = proj
 
         def ehess2rhess(self, p, G, H, X):
-            """Converts the Euclidean gradient G and Hessian H of a function at
+            """Converts the Euclidean gradient P_G and Hessian H of a function at
             a point p along a tangent vector X to the Riemannian Hessian
             along X on the manifold.
             """
             # TODO?
-            # return self.proj(p, H) - (jnp.transpose(p.flatten('F') )@G.flatten('F'))@X
-            return
+            # return self.proj(p, H) - (jnp.transpose(p.flatten('F') )@P_G.flatten('F'))@X
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def retr(self, p, X):
             return self.exp(p, X)
@@ -105,7 +105,7 @@ class Sphere(Manifold):
             X = self.proj(p, X)
 
             def full_exp(sqn):
-                n = jnp.sqrt(sqn + jnp.finfo(jnp.float64).eps)
+                n = jnp.sqrt(sqn)
                 return jnp.cos(n) * p + jnp.sinc(n/jnp.pi) * X
 
             def trunc_exp(sqn):
@@ -114,15 +114,13 @@ class Sphere(Manifold):
                 return (1-sqn/2+sqn**2/24) * p + (1-sqn/6+sqn**2/120) * X
 
             sq_norm = (X ** 2).sum()
-            sq_norm = jnp.where(sq_norm < 0, 0, sq_norm)
-            q = jnp.where(sq_norm < 1e-6, trunc_exp(sq_norm), full_exp(sq_norm))
-            #q = jax.lax.cond(sq_norm < 1e-6, trunc_exp, full_exp, sq_norm) # <-- broadcasting errors?!
+            q = jax.lax.cond(sq_norm < 1e-6, trunc_exp, full_exp, sq_norm)
             return q
 
         def log(self, p, q):
 
             def full_log(a2):
-                a = jnp.sqrt(a2 + jnp.finfo(jnp.float64).eps)
+                a = jnp.sqrt(a2)
                 return 1/jnp.sinc(a/jnp.pi) * q - a/jnp.tan(a) * p
 
             def trunc_log(a2):
@@ -130,8 +128,15 @@ class Sphere(Manifold):
                 #return (1 + a**2/6 + 7*a**4/360) * q - (1 - a**2/3 - a**4/45) * p
 
             sqd = self.squared_dist(p, q)
-            #return jax.lax.cond(sqd < 1e-6, trunc_log, full_log, sqd)
-            return jnp.where(sqd < 1e-6, trunc_log(sqd), full_log(sqd))
+            return jax.lax.cond(sqd < 1e-6, trunc_log, full_log, sqd)
+
+        def curvature_tensor(self, p, X, Y, Z):
+            """Evaluates the curvature tensor R of the connection at p on the vectors X, Y, Z. With nabla_X Y denoting the
+            covariant derivative of Y in direction X and [] being the Lie bracket, the convention
+                R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
+            is used.
+            """
+            return (Y*Z).sum() * X - (X*Z).sum() * Y
 
         def geopoint(self, p, q, t):
             return self.exp(p, t * self.log(p, q))
@@ -146,13 +151,11 @@ class Sphere(Manifold):
 
         def dist(self, p, q):
             inner = (p * q).sum()
-            inner_ = jnp.where(jnp.abs(inner) >= 1, jnp.sign(inner), inner)
-            return jnp.where(jnp.abs(inner) >= 1, (inner<0)*jnp.pi, jnp.arccos(inner_))
+            return jax.lax.cond(jnp.abs(inner) >= 1, lambda i: (i < 0)*jnp.pi, jnp.arccos, inner)
 
         def squared_dist(self, p, q):
             inner = (p * q).sum()
-            inner_ = jnp.where(inner > 1-1e-6, 1-1e-6, inner)
-            return jnp.where(inner > 1-1e-6, jnp.sum((q-p)**2), jnp.arccos(inner_)**2)
+            return jax.lax.cond(inner > 1-1e-6, lambda _: jnp.sum((q-p)**2), lambda i: jnp.arccos(i)**2, inner)
 
         # def eval_jacobiField(self, p, q, t, X):
         #     phi = self.dist(p, q)

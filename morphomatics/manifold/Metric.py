@@ -59,7 +59,7 @@ class Metric(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def ehess2rhess(self, p, G, H, X):
-        """Converts the Euclidean gradient G and Hessian H of a function at
+        """Converts the Euclidean gradient P_G and Hessian H of a function at
         a point p along a tangent vector X to the Riemannian Hessian
         along X on the manifold.
         """

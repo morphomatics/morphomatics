@@ -114,14 +114,13 @@ class SPD(Manifold):
             return dexp(log_mat(S), multisym(D)) # Dexp^T = Dexp for sym. matrices
 
         def ehess2rhess(self, p, G, H, X):
-            """Converts the Euclidean gradient G and Hessian H of a function at
+            """Converts the Euclidean gradient P_G and Hessian H of a function at
             a point p along a tangent vector X to the Riemannian Hessian
             along X on the manifold.
             """
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def retr(self, S, X):
-            # TODO
             return self.exp(S, X)
 
         def exp(self, *argv):
@@ -143,6 +142,14 @@ class SPD(Manifold):
             T = jax.lax.cond(len(argv) == 1, lambda ST: ST[1], lambda ST: ST[1] - log_mat(ST[0]), (argv[0], T))
 
             return multisym(T)
+
+        def curvature_tensor(self, S, X, Y, Z):
+            """Evaluates the curvature tensor R of the connection at p on the vectors X, Y, Z. With nabla_X Y denoting the
+            covariant derivative of Y in direction X and [] being the Lie bracket, the convention
+                R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
+            is used.
+            """
+            return jnp.zeros(self._M.point_shape)
 
         def geopoint(self, S, T, t):
             """ Evaluate the geodesic from S to T at time t in [0, 1]"""
@@ -241,12 +248,12 @@ class SPD(Manifold):
 
         def bracket(self, X, Y):
             """Lie bracket in Lie algebra."""
-            return None
+            return jnp.zeros(self._M.point_shape)
 
         def adjrep(self, g, X):
             """Adjoint representation of g applied to the tangent vector X at the identity.
             """
-            return None
+            raise NotImplementedError('This function has not been implemented yet.')
 
     def projToGeodesic(self, X, Y, P, max_iter=10):
         '''
@@ -280,10 +287,10 @@ class SPD(Manifold):
         return jnp.zeros(self.point_shape)
 
 def logm(S):
-    # Matrix logarithm, only use for normal matrices S, i.e., S * S^T = S^T * S
+    # Matrix logarithm (w/ projection to SPD cone)
     vals, vecs = jnp.linalg.eigh(S)
-    vals = jnp.log(jnp.where(vals > 1e-10, vals, 1))
-    return jnp.real(jnp.einsum('...ij,...j,...kj', vecs, vals, vecs))
+    vals = jnp.log(jnp.clip(vals, 1e-10, None))
+    return jnp.einsum('...ij,...j,...kj', vecs, vals, vecs)
 
 def expm(X):
     vals, vecs = jnp.linalg.eigh(X)
@@ -340,19 +347,19 @@ def exp_mat_jvp(U, X):
 
 def dexp(X, G):
     """Evaluate the derivative of the matrix exponential at
-    X in direction G.
+    X in direction P_G.
     """
     dexpm = lambda X_, G_: expm_frechet(X_, G_, compute_expm=False)
     return jax.vmap(dexpm)(X, G)
 
 def dlog(X, G):
     """Evaluate the derivative of the matrix logarithm at
-    X in direction G.
+    X in direction P_G.
     """
-    ### using logm for [[X, G], [0, X]]
+    ### using logm for [[X, P_G], [0, X]]
     # n = X.shape[1]
-    # # set up [[X, G], [0, X]]
-    # W = jnp.hstack((jnp.dstack((X, G)), jnp.dstack((jnp.zeros_like(X), X))))
+    # # set up [[X, P_G], [0, X]]
+    # W = jnp.hstack((jnp.dstack((X, P_G)), jnp.dstack((jnp.zeros_like(X), X))))
     # return jnp.array([matrix_log(W[i])[:n, n:] for i in range(X.shape[0])])
 
     ### using (forward-mode) automatic differentiation of log_mat(X)

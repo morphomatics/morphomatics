@@ -135,12 +135,21 @@ class GLpn(Manifold):
             """Computes the Lie-theoretic and connection logarithm map
             (depending on signature, i.e. whether footpoint is given as well)
             """
-            # NOTE: as logm() is not available in jax we apply log via funm() (so far this is CPU only)
+            # NOTE: as logm() is not available in jax we apply log via funm() (so far this is CPU only; not as stable as
+            # logm in numpy)
             logm = lambda m: jnp.real(funm(m, jnp.log))
             return jax.vmap(logm)(jax.lax.cond(len(argv) == 1,
                                                lambda A: A[-1],
                                                lambda A: jnp.einsum('...ij,...kj', A[-1], A[0]),
                                                argv))
+
+        def curvature_tensor(self, f, X, Y, Z):
+            """Evaluates the curvature tensor R of the connection at f on the vectors X, Y, Z. With nabla_X Y denoting
+            the covariant derivative of Y in direction X and [] being the Lie bracket, the convention
+                R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
+            is used.
+            """
+            return
 
         def dleft(self, f, X):
             """Derivative of the left translation by f applied to the tangent vector X at the identity.

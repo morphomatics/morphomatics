@@ -11,10 +11,7 @@
 ################################################################################
 
 import numpy as np
-
-import jax
 import jax.numpy as jnp
-from jax import jit
 import jax.lax as lax
 
 
@@ -24,8 +21,8 @@ class BezierSpline:
     def __init__(self, M, control_points, iscycle=False):
         """
         :arg M: manifold in which the curve lies
-        :arg control_points: list of arrays of control points of the Bézier spline sorted along the first axis. All
-        segments must have the same degree.
+        :arg control_points: array of control points of the Bézier spline, the L >= 1 segments must be sorted along the
+        first axis and all segments must have the same degree k; that is, the input must be an [L, k, M.point_shape] array
         entry of the list belongs to the l-th segment of the spline.
         :arg iscycle: boolean indicating whether B is a closed curve
         """
@@ -74,7 +71,7 @@ class BezierSpline:
 
             def single_layer(A, r, X=None):
                 """
-                Single layer of the computation consisting of a a single step of the de Casteljau algorithm
+                Single layer of the computation consisting of a single step of the de Casteljau algorithm
                 plus additinal vectors transport/computation.
                 """
                 if X is None:
@@ -137,7 +134,7 @@ class BezierSpline:
                 return P, X
 
         # get segment and local parameter
-        ind, t = self.segmentize(t)
+        ind, t = segmentize(t)
 
         return bezier_tangent(BezierSpline(self._M, [self.control_points[ind]]), t)
 
@@ -153,7 +150,7 @@ class BezierSpline:
             return True
 
         for i, seg in enumerate(cp[1:]):
-            p = self.Mgeopoint(cp[i-1][-2], seg[1], 1/2)
+            p = self._M.connec.geopoint(cp[i-1][-2], seg[1], 1/2)
             # if midpoint and connecting control point are further apart than epsilon return False
             if self._M.metric.dist(p, seg[0]) > eps:
                 return False
@@ -189,17 +186,11 @@ class BezierSpline:
         # all vectors were (almost) parallel
         return True
 
-    def Mgeopoint(self, p, q, t):
-        """Evaluates the geodesic from p to q at time t in [0,1].
-        Some manifolds allow faster implementations than this generic one; e.g., Sym+."""
-        return self._M.connec.exp(p, self._M.connec.log(p, q) * t)
-
-
     def eval(self, t: float):
         """Evaluates the Bézier spline at time t."""
 
         # choose correct control points
-        ind, t = self.segmentize(t)
+        ind, t = segmentize(t)
         P = self.control_points[ind]
 
         return decasteljau(self._M, P, t)[0]
@@ -218,7 +209,7 @@ class BezierSpline:
         siz.insert(0, 1)
 
         # t indicates which element of P to choose
-        ind, t = self.segmentize(t)
+        ind, t = segmentize(t)
         P = self.control_points[ind]
 
         # number of control points of corresponding segment
@@ -269,94 +260,41 @@ class BezierSpline:
 
         return grad
 
-    def segmentize(self, t):
-        """Choose the correct segment and value for the parameter t
-        :param t: scalar in [0, nsegments]
-        :return: index of corresponding control points in self.control_points and the adjusted value of t in [0,1]
-        """
+def segmentize(t):
+    """Choose the correct segment and value for the parameter t
+    :param t: scalar in [0, nsegments]
+    :return: index of corresponding control points in self.control_points and the adjusted value of t in [0,1]
+    """
 
-        # # choose correct control points
-        # if t == 0:
-        #     ind = 0
-        # elif t == np.round(t):
-        #     ind = t - 1
-        #     ind = ind.astype(int)
-        #     t = 1
-        # else:
-        #     ind = np.floor(t).astype(int)
-        #     t = t - np.floor(t)
-        def startpoint(t):
-            return int(0), t
+    def startpoint(t):
+        return int(0), t
 
-        def connecting_point(t):
-            return t.astype(int) - 1, 1.
+    def connecting_point(t):
+        return t.astype(int) - 1, 1.
 
-        def inner_point(t):
-            return jnp.floor(t).astype(int), t - jnp.floor(t)
+    def inner_point(t):
+        return jnp.floor(t).astype(int), t - jnp.floor(t)
 
-        return lax.cond(t == 0, startpoint, lambda s: lax.cond(t == jnp.round(t), connecting_point, inner_point, s), t)
+    return lax.cond(t == 0, startpoint, lambda s: lax.cond(t == jnp.round(t), connecting_point, inner_point, s), t)
 
 
-def decasteljau(M, P, t, return_intermediate=False):
+def decasteljau(M, P, t):
     """Generalized de Casteljau algorithm
     :param M: manifold
-    :param P: control points
+    :param P: control points of curve beta
     :param t: scalar in [0,1]
-    :param return_intermediate: If True, return intermediate points of the de Casteljau algorithm.
-    :return  P, (B): result of the de Casteljau algorithm with control points P, (intermediate points B in the algorithm)
+    :return  beta(t), (B): result of the de Casteljau algorithm with control points P, (intermediate points B in the algorithm)
     """
-    def single_layer(A, t):
-        # averaging of a single layer in de Casteljau algorithm
-        # size = np.array(np.shape(A))
-        # give back one point less
-        # size[0] = size[0] - 1
-        # Bl = np.zeros(size)
-        Bl = []
-        for i in range(A.shape[0] - 1):
-            Bl.append(M.connec.exp(A[i], M.connec.log(A[i], A[i + 1]) * t))
-        return jnp.array(Bl)
-
     # number of control points
     k = len(P)
-    B = [jnp.array(P)]
 
-    # easy cases
-    # if t == 0:
-    #     if return_intermediate:
-    #         for l in range(1, k-1):
-    #             # do not take uppermost control point
-    #             B.append(P[:-l])
-    #         return P[0], B
-    #     else:
-    #         return P[0]
-    # elif t == 1:
-    #     if return_intermediate:
-    #         for l in range(1, k-1):
-    #             # do not take lowermost control point
-    #             B.append(P[l:])
-    #         return P[-1], B
-    #     else:
-    #         return P[-1]
+    # init linearized tree of control points
+    B = jnp.concatenate([jnp.asarray(P)[i:] for i in range(k)])
+    # for lower-level control points: indices of parent ones w.r.t B
+    offset = [(2*k*n - n*n + n)//2 for n in range(k-1)]
+    idx = np.concatenate([np.arange(k-1-i)+o for i, o in enumerate(offset)])
+    # compute lower-level points
+    f = lambda B, io: (B.at[io[1]].set(M.connec.geopoint(B[io[0]], B[io[0]+1], t)), None)
+    B = lax.scan(f, B, np.c_[idx, k+np.arange(len(idx))])[0]
 
-    # computations are neccessary
-    for l in range(k - 1):
-        P = single_layer(P, t)
-        B.append(P)
-
-    # def body_func(i, A):
-    #     A = single_layer(A, t)
-    #     # save intermediate points
-    #     B.append(A)
-    #     return A
-
-    # P = lax.fori_loop(0, k-1, body_func, P)
-    B.pop(-1)
-
-    # if return_intermediate:
-    #     # last entry is B(t) = P
-    #     B.pop(-1)
-    #     return P[0], B
-    # else:
-    #     return P[0]
-
-    return P[0], B
+    return B[-1], [B[o:o+k-i] for i, o in enumerate(offset)]

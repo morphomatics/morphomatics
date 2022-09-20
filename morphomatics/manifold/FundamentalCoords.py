@@ -310,7 +310,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         """
         :arg G: (list of) tangent vector(s) at X
         :arg H: (list of) tangent vector(s) at X
-        :returns: inner product at X between G and H, i.e. <G,H>_X
+        :returns: inner product at X between P_G and H, i.e. <P_G,H>_X
         """
         return jnp.sum(G * self.mass * H)
 
@@ -345,7 +345,7 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         return grad
 
     def ehess2rhess(self, p, G, H, X):
-        """Converts the Euclidean gradient G and Hessian H of a function at
+        """Converts the Euclidean gradient P_G and Hessian H of a function at
         a point p along a tangent vector X to the Riemannian Hessian
         along X on the manifold.
         """
@@ -369,12 +369,21 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
         Cy, Uy = self.disentangle(Y)
         return self.entangle(self.SO.connec.log(Cx, Cy), self.SPD.connec.log(Ux, Uy))
 
+    def curvature_tensor(self, p, X, Y, Z):
+        """Evaluates the curvature tensor R of the connection at p on the vectors X, Y, Z. With nabla_X Y denoting the
+        covariant derivative of Y in direction X and [] being the Lie bracket, the convention
+            R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
+        is used.
+        """
+        # TODO: inherit from SO and SPD
+        raise NotImplementedError('This function has not been implemented yet.')
+
     def transp(self, X, Y, G):
         """
         :param X: element of the space of fundamental coordinates
         :param Y: element of the space of fundamental coordinates
         :param G: tangent vector at X
-        :return: parallel transport of G along the geodesic from X to Y
+        :return: parallel transport of P_G along the geodesic from X to Y
         """
         # disentangle coords. into rotations and stretches
         Cx, Ux = self.disentangle(X)

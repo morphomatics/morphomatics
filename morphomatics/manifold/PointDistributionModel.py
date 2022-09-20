@@ -65,7 +65,7 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
         """
         :arg X: (list of) tangent vector(s) at p
         :arg Y: (list of) tangent vector(s) at p
-        :returns: inner product at p between G and H, i.e. <X,Y>_p
+        :returns: inner product at p between P_G and H, i.e. <X,Y>_p
         """
         return X @ Y.T
 
@@ -85,6 +85,9 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
 
     def log(self, p, q):
         return q - p
+
+    def curvature_tensor(self, p, X, Y, Z):
+        return self.zerovec()
 
     def rand(self):
         v = randn_with_key(self.ref.v.shape)

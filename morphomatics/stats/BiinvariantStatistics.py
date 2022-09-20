@@ -10,10 +10,9 @@
 #                                                                              #
 ################################################################################
 
-import numpy as np
-import numpy.linalg as la
-
-from joblib import Parallel, delayed
+import jax.numpy as jnp
+import jax.numpy.linalg as jla
+from jax import random
 
 from morphomatics.manifold import LieGroup
 from morphomatics.stats import ExponentialBarycenter as Mean
@@ -37,7 +36,7 @@ class BiinvariantStatistics(object):
         self.variant = variant
 
     def two_sample_test(self, data_A, data_B, measure, n_permutations=10000):
-        """Bi-invariant two-sample permutation test for data in Lie groups.
+        """Bi-invariant two-sample permutation test for data in G.
         Null hypothesis: 'Means of distributions underlying the 2 data sets are equal' if Hotelling T2 statistic is used
                          'Means and covariance underlying the 2 data sets are equal' if Bhattacharyya distance is used
         :param data_A: data array of first set; data is sorted along first axis
@@ -51,13 +50,13 @@ class BiinvariantStatistics(object):
         elif measure == 'bhattacharyya':
             distMeasure = self.bhattacharyya
 
-        n = np.shape(data_A)[0]
+        n = jnp.shape(data_A)[0]
 
         # distance between distributions of data
         d_orig = distMeasure(data_A, data_B)
 
-        D = np.concatenate((data_A, data_B), axis=0)
-        d_perm = np.zeros(n_permutations)
+        D = jnp.concatenate((data_A, data_B), axis=0)
+        d_perm = []
         # count how often d_orig is smaller than distance between randomly shuffled groups
         counter = 0
 
@@ -68,13 +67,15 @@ class BiinvariantStatistics(object):
         # with Parallel(n_jobs=-1, prefer='threads', verbose=0) as parallel:
         #     d_perm = parallel(delayed(shuffle)(D) for _ in range(n_permutations))
 
+        key = random.PRNGKey(0)
         # permute and recompute
         for i in range(n_permutations):
+            key, subkey = random.split(key)
             # permute along first axis
-            D_perm = np.random.permutation(D)
+            D_perm = random.permutation(key, D)
             # distance between shuffled groups
             d_perm_i = distMeasure(D_perm[:n], D_perm[n:])
-            d_perm[i] = d_perm_i
+            d_perm.append(d_perm_i)
 
             # increase count if d_orig < d_perm_i
             if d_orig < d_perm_i:
@@ -82,20 +83,19 @@ class BiinvariantStatistics(object):
 
         for d_perm_i in d_perm:
             if d_orig < d_perm_i:
-                counter += 1
+                counter = counter + 1
 
         return counter / (n_permutations + 1), d_orig, d_perm
 
-    def groupmean(self, data, n_jobs=-1):
+    def groupmean(self, data):
         """
         :param data: list of elements in G (sufficiently close)
-        :param n_jobs: number of workers
         :return: group mean of data points
         """
-        return Mean.compute(self.G, data, n_jobs=1)
+        return Mean.compute(self.G, data)
 
     def mahalanobisdist(self, A, g):
-        """ Bi-invariant Mahalanobis distance
+        """ Bi-invariant Mahalanobis distance in G
         :param A: list of data points in G
         :param g: element of G
         :return: Mahalanobis distance of g to the distribution of the data points in A
@@ -104,10 +104,10 @@ class BiinvariantStatistics(object):
         C, mean = self.centralized_sample_covariance(A)
         x = self.G.group.coords(self.diff_at_e(mean, g))
 
-        return np.asscalar(np.sqrt(x.transpose() @ la.inv(C) @ x))
+        return float(jnp.sqrt(x.transpose() @ jla.inv(C) @ x))
 
     def hotellingT2(self, A, B):
-        """ Bi-invariant Hotelling T^2 statistic
+        """ Bi-invariant Hotelling T^2 statistic in G
         :param A: list of data points in G
         :param B: list of data points in G
         :return: Hotelling T^2 statistic between the distribution of the samples in A and B
@@ -116,24 +116,25 @@ class BiinvariantStatistics(object):
         C_pool, _, _, mean_A, mean_B = self.pooled_sample_covariance(A, B)
         x = self.G.group.coords(self.diff_at_e(mean_A, mean_B))
 
-        return m*n/(m+n) * np.asscalar(x.transpose() @ la.inv(C_pool) @ x)
+        return m*n/(m+n) * float(x.transpose() @ jla.inv(C_pool) @ x)
 
     def bhattacharyya(self, A, B):
-        """ Bi-invariant Bhattacharyya distance
+        """ Bi-invariant Bhattacharyya distance in G
         :param A: list of data points in G
         :param B: list of data points in G
         :return: Bhattacharyya distance between the distribution of the samples in A and B
         """
         C_avg, C_A, C_B, mean_A, mean_B = self.averaged_sample_covariance(A, B)
         x = self.G.group.coords(self.diff_at_e(mean_A, mean_B))
-        D_B = 1/8 * x.transpose() @ la.inv(C_avg) @ x + 1/2 * np.log(la.det(C_avg) / np.sqrt(la.det(C_A) * la.det(C_B)))
+        D_B = 1/8 * x.transpose() @ jla.inv(C_avg) @ x \
+              + 1/2 * jnp.log(jla.det(C_avg) / jnp.sqrt(jla.det(C_A) * jla.det(C_B)))
 
-        return np.asscalar(D_B)
+        return float(D_B)
 
     def centralized_sample_covariance(self, A):
-        """ Centralized sample covariance of G-valued data
+        """ Centralized sample covariance of G–valued data
         :param A: list of data points in G
-        :return: covariance matrix defined on (coordinate representations of) tangent vectors vectors at the identity
+        :return: covariance matrix defined on (coordinate representations of) tangent vectors at the identity
         """
         m = len(A)
         # mean of data
@@ -141,16 +142,16 @@ class BiinvariantStatistics(object):
         # inverse only once
         mean_inv = self.G.group.inverse(mean)
         # set up covariance matrix
-        C = np.zeros((self.G.dim, self.G.dim))
+        C = jnp.zeros((self.G.dim, self.G.dim))
 
         for a in A:
             x = self.G.group.coords(self.diff_at_e(mean, a))
-            C += x @ x.transpose()
+            C = C + x @ x.transpose()
 
         return 1/m * C, mean
 
     def pooled_sample_covariance(self, A, B):
-        """Pooled sample covariance of two data sets in a Lie group.
+        """Pooled sample covariance of two data sets in G.
         :param A: list of data points
         :param B: list of data points
         :return: covariance operator acting on vectors in the tangent space at the identity
@@ -164,7 +165,7 @@ class BiinvariantStatistics(object):
         return C_pool, C_A, C_B, mean_A, mean_B
 
     def averaged_sample_covariance(self, A, B):
-        """Averaged sample covariance of two data sets in a Lie group.
+        """Averaged sample covariance of two data sets in G.
         :param A: list of data points
         :param B: list of data points
         :return: covariance operator acting on vectors in the tangent space at the identity
@@ -176,7 +177,7 @@ class BiinvariantStatistics(object):
         return C_avg, C_A, C_B, mean_A, mean_B
 
     def diff_at_e(self, a, b):
-        """"Difference vector" between two elements in G after translating to a neighborhood of the
+        """ "Difference vector" between two elements in G after translating to a neighborhood of the
         identity e.
         :param a: element of G
         :param b: element of G

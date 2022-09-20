@@ -114,7 +114,7 @@ class SO3(Manifold):
         egrad2rgrad = proj
 
         def ehess2rhess(self, p, G, H, X):
-            """Converts the Euclidean gradient G and Hessian H of a function at
+            """Converts the Euclidean gradient P_G and Hessian H of a function at
             a point p along a tangent vector X to the Riemannian Hessian
             along X on the manifold.
             """
@@ -147,6 +147,14 @@ class SO3(Manifold):
                                      lambda A: A[-1],
                                      lambda A: jnp.einsum('...ij,...kj', A[-1], A[0]),
                                      argv))
+
+        def curvature_tensor(self, p, X, Y, Z):
+            """Evaluates the curvature tensor R of the connection at p on the vectors X, Y, Z. With nabla_X Y denoting
+            the covariant derivative of Y in direction X and [] being the Lie bracket, the convention
+                R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
+            is used.
+            """
+            return 1/4 * self.bracket(self.bracket(X, Y), Z)
 
         def geopoint(self, R, Q, t):
             """Evaluate the geodesic from R to Q at time t in [0, 1]"""
@@ -218,7 +226,7 @@ class SO3(Manifold):
 
             :param R: element of SO(3)^k
             :param Q: element of SO(3)^k
-            :returns lam, G: eigenvalues and orthonormal eigenbasis of Jac at R
+            :returns lam, P_G: eigenvalues and orthonormal eigenbasis of Jac at R
             """
             k = len(R)  # self._M.k
 
@@ -368,13 +376,12 @@ class SO3(Manifold):
             return X
 
         def bracket(self, X, Y):
-            """Lie bracket in Lie algebra."""
-            return None
+            return jnp.einsum('kij,kjl->kil', X, Y) - jnp.einsum('kij,kjl->kil', Y, X)
 
         def adjrep(self, g, X):
             """Adjoint representation of g applied to the tangent vector X at the identity.
             """
-            return None
+            raise NotImplementedError('This function has not been implemented yet.')
 
 
 def weightfun(k, t, d):

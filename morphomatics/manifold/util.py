@@ -10,12 +10,12 @@
 #                                                                              #
 ################################################################################
 
-
-import numpy as np
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from morphomatics.geom.surface import Surface
+
 
 def align(src, ref):
     """ (Constrained) Procrustes alignment of src to ref using Kabsch algorithm
@@ -27,12 +27,12 @@ def align(src, ref):
     # cross-covariance matrix
     c_s = src.mean(axis=0)
     c_r = ref.mean(axis=0)
-    xCov = (ref.T @ src) / n - np.outer(c_r, c_s)
+    xCov = (ref.T @ src) / n - jnp.outer(c_r, c_s)
     # optimal rotation
-    U, S, Vt = np.linalg.svd(xCov)
+    U, S, Vt = jnp.linalg.svd(xCov)
     R = Vt.T @ U.T
-    if np.linalg.det(R) < 0:
-        R = Vt.T @ np.diag([1, 1, -1]) @ U.T
+    if jnp.linalg.det(R) < 0:
+        R = Vt.T @ jnp.diag([1, 1, -1]) @ U.T
     # return aligned coords.
     return src @ R + (c_r - c_s @ R)
 
@@ -41,20 +41,20 @@ def generalized_procrustes(surf):
     """ Generalized Procrustes analysis.
     :arg surf: list of surfaces to be aligned. The meshes must be in correspondence.
     """
-    ref = Surface(np.copy(surf[0].v), np.copy(surf[0].f))
-    old_ref = Surface(np.copy(ref.v), np.copy(ref.f))
+    ref = Surface(jnp.copy(surf[0].v), jnp.copy(surf[0].f))
+    old_ref = Surface(jnp.copy(ref.v), jnp.copy(ref.f))
 
     n_steps = 0
     # do until convergence
-    while (np.linalg.norm(ref.v - old_ref.v) > 1e-11 and 1000 > n_steps) or n_steps == 0:
-        n_steps += 1
-        old_ref = Surface(np.copy(ref.v), np.copy(ref.f))
+    while (jnp.linalg.norm(ref.v - old_ref.v) > 1e-11 and 1000 > n_steps) or n_steps == 0:
+        n_steps = n_steps + 1
+        old_ref = Surface(jnp.copy(ref.v), jnp.copy(ref.f))
         # align meshes to reference
         for i, s in enumerate(surf):
             s.v = align(s.v, ref.v)
 
         # compute new reference
-        v_ref = np.mean(np.array([s.v for s in surf]), axis=0)
+        v_ref = jnp.mean(jnp.array([s.v for s in surf]), axis=0)
         ref.v = v_ref
 
 
@@ -64,24 +64,29 @@ def preshape(v):
     :returns: n-by-3 array of adjusted vertex coordinates
     """
     # center
-    v -= 1 / v.shape[0] * np.tile(np.sum(v, axis=0), (v.shape[0], 1))
+    v = v - 1 / v.shape[0] * jnp.tile(jnp.sum(v, axis=0), (v.shape[0], 1))
     # normalize
-    v /= np.linalg.norm(v)
+    v /= jnp.linalg.norm(v)
     return v
 
-def multiprod(A: np.ndarray, B: np.ndarray) -> np.ndarray:
+
+def multiprod(A: jnp.ndarray, B: jnp.ndarray) -> jnp.ndarray:
     # vectorized matrix - matrix multiplication
     return jnp.einsum('...ij,...jk', A, B)
+
 
 def multitransp(A):
     # vectorized matrix transpose
     return jnp.einsum('...ij->...ji', A)
 
+
 def multiskew(A):
     return 0.5 * (A - jnp.einsum('...ij->...ji', A))
 
+
 def multisym(A):
     return 0.5 * (A + jnp.einsum('...ij->...ji', A))
+
 
 def vectime3d(x, A):
     """
@@ -105,6 +110,7 @@ def vectime3d(x, A):
     A = jnp.einsum('kij->ijk', A)
     return jnp.einsum('ijk->kij', x * A)
 
+
 def gram_schmidt(A):
     """Orthogonalize a set of vectors stored as the columns of matrix A."""
     # Get the number of vectors.
@@ -118,6 +124,7 @@ def gram_schmidt(A):
         A = A.at[:, j].set(A[:, j] / jnp.linalg.norm(A[:, j]))
 
     return A
+
 
 def randn_with_key(point_shape):
     """ Generate jax random array using numpy random key"""

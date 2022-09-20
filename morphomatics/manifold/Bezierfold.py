@@ -16,7 +16,7 @@ import jax
 import jax.numpy as jnp
 
 from morphomatics.manifold import Manifold
-from morphomatics.stats.RiemannianRegression import full_set, indep_set, sumOfSquared
+from morphomatics.stats.RiemannianRegression import full_set, indep_set
 from morphomatics.manifold.ManoptWrap import ManoptWrap
 
 import pymanopt
@@ -37,22 +37,24 @@ class Bezierfold(Manifold):
 
     """
 
-    def __init__(self, M: Manifold, degrees, isscycle=False):
-        """
+    def __init__(self, M: Manifold, n_segments, degree, isscycle=False):
+        """Manifold of Bézier splines of constant segment degree
 
         :arg M: base manifold in which the curves lie
-        :arg degrees: array of degrees of the Bézier segments – every segment must have the same degree
+        :arg n_segments: integer number of segments
+        :arg degree: integer degree of segments (same for each one)
+        :arg iscycle: boolean indicating whether the splines are closed
         """
 
         self._M = M
 
-        self._degrees = jnp.atleast_1d(degrees)
+        self._degrees = degree * jnp.ones(n_segments).astype(int)
 
         if isscycle:
-            name = 'Manifold of closed Bézier splines of degrees {d} through '.format(d=degrees) + str(M)
+            name = 'Manifold of closed Bézier splines of degrees {d} through '.format(d=self._degrees) + str(M)
             K = jnp.sum(self._degrees - 1) - 1
         else:
-            name = 'Manifold of non-closed Bézier splines of degrees {d} through '.format(d=degrees) + str(M)
+            name = 'Manifold of non-closed Bézier splines of degrees {d} through '.format(d=self._degrees) + str(M)
             K = jnp.sum(self._degrees - 1) + 1
 
         dimension = (K + 1) * M.dim
@@ -108,7 +110,7 @@ class Bezierfold(Manifold):
 
     def rand(self):
         """Return random Bézier spline"""
-        return BezierSpline(self.M, full_set(self.M, jnp.array([self.M.rand() for k in self.K+1]),
+        return BezierSpline(self.M, full_set(self.M, jnp.array([self.M.rand() for k in self.K + 1]),
                                              self.degrees, self.iscycle))
 
     def randvec(self, B: BezierSpline):
@@ -117,7 +119,7 @@ class Bezierfold(Manifold):
 
     def zerovec(self):
         """Return zero vector for every independent control point"""
-        return jnp.array([self.M.zerovec() for k in self.K+1])
+        return jnp.array([self.M.zerovec() for k in self.K + 1])
 
     def indep_cp_path(self, P):
         """Returns concatenated sequence of independent control points of a discrete path
@@ -229,7 +231,7 @@ class Bezierfold(Manifold):
             return d
 
         def discgeodesic(self, A, B, n=5, maxtime=1000, maxiter=30, mingradnorm=1e-6, minstepsize=1e-10,
-                         maxcostevals=5000, verbosity=0):
+                         maxcostevals=5000, verbosity=0, mode='control_points'):
             """Discrete shortest path through space of Bézier curves
 
             :param A: Bézier spline in manifold M or control points thereof
@@ -241,6 +243,7 @@ class Bezierfold(Manifold):
             :param minstepsize: see Pymanopt's solver class
             :param maxcostevals: see Pymanopt's solver class
             :param logverbosity: see Pymanopt's solver class (0 to 2)
+            :param mode : return array of control points if 'control_points' and list of curves if 'curves'
             :return: control points of the Bézier splines along the shortest path
             """
 
@@ -278,7 +281,7 @@ class Bezierfold(Manifold):
             # Solve optimization problem with pymanopt by optimizing over independent control points
             pymanoptM = ManoptWrap(self._Bf.M)
             # there are n-1 inner splines
-            N = Product([pymanoptM] * (n-1) * (self._Bf.K + 1))
+            N = Product([pymanoptM] * (n - 1) * int(self._Bf.K + 1))
 
             @jax.jit
             def cost_(a, b):
@@ -297,7 +300,7 @@ class Bezierfold(Manifold):
 
                 c = 0
                 for i in range(len(H)):
-                    c = c + cost_(H[i], H[i+1])
+                    c = c + cost_(H[i], H[i + 1])
 
                 return c
 
@@ -311,7 +314,14 @@ class Bezierfold(Manifold):
 
             H_opt = self._Bf.full_cp_path(jnp.array(opt.point))
 
-            return jnp.concatenate((jnp.expand_dims(PA, axis=0), H_opt, jnp.expand_dims(PB, axis=0)))
+            if mode == 'control_points':
+                return jnp.concatenate((jnp.expand_dims(PA, axis=0), H_opt, jnp.expand_dims(PB, axis=0)))
+            else:
+                splines = [A]
+                for P in H_opt:
+                    splines.append(BezierSpline(self._Bf.M, P))
+                splines.append(B)
+                return splines
 
         def loc_dist(self, P, Q, t=None):
             """ Evaluate distance between two Bézier splines in M at several points
@@ -342,7 +352,7 @@ class Bezierfold(Manifold):
         def disc_path_energy(self, H):
             """Discrete path energy
 
-            :param H: discrete path given as ordered list of Bézier splines of the same degrees
+            :param H: discrete path given array of control points of Bézier splines of the same degrees
             :return: energy of H
             """
             d = 0
@@ -354,7 +364,7 @@ class Bezierfold(Manifold):
 
             return d
 
-        def mean(self, B, n=3, delta=1e-5, min_stepsize=1e-10, nsteps=20, eps=1e-5, n_stepsGeo=10, verbosity=1):
+        def mean(self, B, n=3, delta=1e-5, min_stepsize=1e-10, nsteps=20, verbosity=1):
             """Discrete mean of a set of Bézier splines
 
             :param B: list of Bézier splines, every curve can have arbitrary many segments which must have the same degrees
@@ -363,8 +373,6 @@ class Bezierfold(Manifold):
             delta
             :param min_stepsize: iteration stops when the step length is smaller than the given value
             :param nsteps: maximal number of iterations
-            :param eps: see eps in discgeodesic
-            :param n_stepsGeo: maximal number of iterations when computating discrete geodesics
             :param verbosity: 0 (no text) or 1 (print information on convergence)
             :return: mean curve
             """
@@ -381,16 +389,16 @@ class Bezierfold(Manifold):
                     F.append(self.discgeodesic(meaniterate, b_, n=n))
 
                 return jnp.array(F)
-                #return jax.vmap(fun)(B)
+                # return jax.vmap(fun)(B)
 
             @jax.jit
             def loss(F):
                 """Loss in optimization for mean
                 """
-                # G = 0
+                # P_G = 0
                 # for HH in FF:
-                #     G = G + self.disc_path_energy(HH)
-                # return G
+                #     P_G = P_G + self.disc_path_energy(HH)
+                # return P_G
                 return jnp.sum(jax.vmap(self.disc_path_energy)(F))
 
             # measure computation time
@@ -511,7 +519,7 @@ class Bezierfold(Manifold):
             :param eps: see mean method
             :param n_stepsGeo: see mean method
             :param verbosity: see mean method
-            :return G: Gram matrix
+            :return P_G: Gram matrix
             :return bet_mean: mean curve of data curves
             :return F: discrete geodesics from mean to data curves
             """
@@ -537,42 +545,43 @@ class Bezierfold(Manifold):
         ### not imlemented ###
 
         def geopoint(self, alp, bet, t):
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def pairmean(self, alp, bet):
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def proj(self, X, H):
-            # TODO
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
 
         egrad2rgrad = proj
 
         def ehess2rhess(self, p, G, H, X):
-            """Converts the Euclidean gradient G and Hessian H of a function at
+            """Converts the Euclidean gradient P_G and Hessian H of a function at
             a point p along a tangent vector X to the Riemannian Hessian
             along X on the manifold.
             """
             return
 
         def retr(self, R, X):
-            # TODO
             return self.exp(R, X)
 
         def exp(self, R, X):
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def log(self, R, Q):
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
+
+        def curvature_tensor(self, p, X, Y, Z):
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def transp(self, R, Q, X):
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def jacobiField(self, R, Q, t, X):
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def adjJacobi(self, R, Q, t, X):
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
 
 
 def extract_control_points(B):

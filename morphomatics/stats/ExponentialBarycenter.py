@@ -10,11 +10,13 @@
 #                                                                              #
 ################################################################################
 
+from functools import partial
 
 import jax
 import jax.numpy as jnp
 
 from morphomatics.manifold import Manifold
+
 
 class ExponentialBarycenter(object):
     """
@@ -26,11 +28,13 @@ class ExponentialBarycenter(object):
     """
 
     @staticmethod
+    @partial(jax.jit, static_argnames=['mfd', 'max_iter'])
     def compute(mfd: Manifold, data, x=None, max_iter=10):
         """
         :arg mfd: data space in which mean is computed
         :arg data: array of data points
         :arg x: initial guess
+        :arg max_iter: maximal number of iterations
         :returns: mean of data, i.e. exp. barycenter thereof
         """
         assert mfd.connec
@@ -40,16 +44,21 @@ class ExponentialBarycenter(object):
             x = data[0].copy() #TODO: better guess -> choose most central sample
 
         # Newton-type fixed point iteration
-        grad = jax.jit(lambda a: jnp.sum(jax.vmap(lambda b: mfd.connec.log(a, b))(data), axis=0) / len(data))
-        for _ in range(max_iter):
-            g = grad(x)
-            if mfd.metric:
-                g_norm = mfd.metric.norm(x, -g)
-            else:
-                g_norm = jax.numpy.linalg.norm(-g)
-            print(f'|grad|={g_norm}')
-            if g_norm < 1e-12: break
+
+        def body(args):
+            x, g_norm, i = args
+            g = jnp.sum(jax.vmap(mfd.connec.log, (None, 0))(x, data), axis=0) / len(data)
+            g_norm = jax.numpy.linalg.norm(g) if mfd.metric is None else mfd.metric.norm(x, g)
             x = mfd.connec.exp(x, g)
+            return (x, g_norm, i+1)
+
+        def cond(args):
+            _, g_norm, i = args
+            c = jnp.array([g_norm > 1e-6, i < max_iter])
+            return jnp.all(c)
+
+        x, g_norm, i = jax.lax.while_loop(cond, body, (x, jnp.array(1.), jnp.array(0)))
+        # print(g_norm, i)
 
         return x
 
