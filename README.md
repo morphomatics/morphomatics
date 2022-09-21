@@ -15,6 +15,7 @@ Morphomatics can be installed directly from github using the following command:
 ```
 pip install git+https://github.com/morphomatics/morphomatics.git#egg=morphomatics
 ```
+For instructions on how to set up `jaxlib`, please refer to the [JAX install guide](https://github.com/google/jax#installation).
 
 ## Dependencies
 * numpy

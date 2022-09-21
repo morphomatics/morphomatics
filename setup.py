@@ -15,7 +15,7 @@ from setuptools import setup
 setup(
   name = 'morphomatics',
   packages = ['morphomatics', 'morphomatics.geom', 'morphomatics.manifold', 'morphomatics.stats'],
-  version = '2.0rc',
+  version = '2.0',
   version_name = 'Accelerated Augustus',
   license='ZIB Academic License',
   description = 'Geometric morphometrics in non-Euclidean shape spaces',
@@ -28,7 +28,7 @@ setup(
           'jaxlib>=0.3.14',
           'numpy',
           'scipy',
-          'pymanopt>=1.0.0'
+          'pymanopt>=2.0.0'
       ],
   classifiers=[
     'Development Status :: 4 - Beta',
