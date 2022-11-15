@@ -21,7 +21,7 @@ For instructions on how to set up `jaxlib`, please refer to the [JAX install gui
 * numpy
 * scipy
 * jax/jaxlib
-* pymanopt
 
 Optional
+* pymanopt
 * sksparse

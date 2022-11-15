@@ -16,7 +16,7 @@ import jax
 import jax.numpy as jnp
 
 from morphomatics.manifold import Manifold, Metric, Connection, LieGroup
-from morphomatics.manifold.util import multiskew, vectime3d, randn_with_key
+from morphomatics.manifold.util import multiskew, vectime3d
 
 I = np.eye(3)
 O = np.zeros(3)
@@ -64,15 +64,15 @@ class SO3(Manifold):
     def k(self):
         return self._k
 
-    def randskew(self):
-        S = randn_with_key(self.point_shape)
+    def randskew(self, key: jax.random.KeyArray):
+        S = jax.random.normal(key, self.point_shape)
         return multiskew(S)
 
-    def rand(self):
-        return self.group.exp(self.randskew())
+    def rand(self, key: jax.random.KeyArray):
+        return self.group.exp(self.randskew(key))
 
-    def randvec(self, X):
-        U = self.randskew()
+    def randvec(self, X, key: jax.random.KeyArray):
+        U = self.randskew(key)
         nrmU = jnp.sqrt(jnp.tensordot(U, U, axes=U.ndim))
         return U / nrmU
 

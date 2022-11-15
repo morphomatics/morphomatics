@@ -10,6 +10,7 @@
 #                                                                              #
 ################################################################################
 
+import jax.random
 import numpy as np
 import jax.numpy as jnp
 
@@ -116,13 +117,13 @@ class GLpCoords(ShapeSpace):
         """
         return self.group.identity
 
-    def rand(self):
+    def rand(self, key: jax.random.KeyArray):
         """Random set of coordinates () won't represent a 'nice' shape).
         """
-        return self.GLp.rand()
+        return self.GLp.rand(key)
 
-    def randvec(self, A):
-        return self.GLp.randvec(A)
+    def randvec(self, A, key: jax.random.KeyArray):
+        return self.GLp.randvec(A, key)
 
     def zerovec(self):
         """Zero tangent vector in any tangent space.

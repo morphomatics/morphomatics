@@ -15,7 +15,6 @@ import jax.numpy as jnp
 from jax.scipy.linalg import expm, funm
 
 from morphomatics.manifold import Manifold, LieGroup, Connection
-from morphomatics.manifold.util import randn_with_key
 
 
 class GLpn(Manifold):
@@ -53,16 +52,16 @@ class GLpn(Manifold):
     def k(self):
         return self._k
 
-    def rand(self):
+    def rand(self, key: jax.random.KeyArray):
         """Returns a random point in the Lie group. This does not
         follow a specific distribution."""
-        A = randn_with_key((self.k, self.n, self.n))
+        A = jax.random.normal(key, self.point_shape)
         return jax.vmap(expm)(A)
 
-    def randvec(self, A):
+    def randvec(self, A, key: jax.random.KeyArray):
         """Returns a random vector in the tangent space at A.
         """
-        return randn_with_key((self.k, self.n, self.n))
+        return jax.random.normal(key, self.point_shape)
 
     def zerovec(self):
         """Returns the zero vector in the tangent space at g."""

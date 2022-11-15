@@ -11,7 +11,9 @@
 ################################################################################
 
 import os
+
 import numpy as np
+import jax
 import jax.numpy as jnp
 
 from scipy import sparse
@@ -251,9 +253,10 @@ class FundamentalCoords(ShapeSpace, Metric, Connection):
     def ref_coords(self):
         return self._identity
 
-    def rand(self):
-        R = self.SO.rand()
-        U = self.SPD.rand()
+    def rand(self, key: jax.random.KeyArray):
+        k1, k2 = jax.random.split(key)
+        R = self.SO.rand(k1)
+        U = self.SPD.rand(k2)
         return self.entangle(R, U)
 
     def zerovec(self):

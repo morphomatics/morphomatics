@@ -10,26 +10,22 @@
 #                                                                              #
 ################################################################################
 
+from __future__ import annotations
+from functools import partial
+
+from typing import Tuple
+
 import numpy as np
 
 import jax
 import jax.numpy as jnp
 
-from morphomatics.manifold import Manifold
-from morphomatics.stats.RiemannianRegression import full_set, indep_set
-from morphomatics.manifold.ManoptWrap import ManoptWrap
-
-import pymanopt
-from pymanopt import Problem
-from pymanopt.manifolds import Product
-from pymanopt.optimizers import SteepestDescent
-
-import time
-
-from morphomatics.stats.RiemannianRegression import RiemannianRegression
+from morphomatics.geom import BezierSpline
+from morphomatics.manifold import Manifold, Metric, Connection, PowerManifold
+from morphomatics.opt import RiemannianSteepestDescent, RiemannianNewtonRaphson
 from morphomatics.stats import ExponentialBarycenter
-from morphomatics.geom.BezierSpline import BezierSpline
-from morphomatics.manifold import Metric, Connection
+from morphomatics.stats import RiemannianRegression
+from morphomatics.stats.RiemannianRegression import full_set, indep_set
 
 
 class Bezierfold(Manifold):
@@ -37,32 +33,42 @@ class Bezierfold(Manifold):
 
     """
 
-    def __init__(self, M: Manifold, n_segments, degree, isscycle=False):
+    def __init__(self, M: Manifold, n_segments: int, degree: int, isscycle: bool=False,
+                 n_steps: int=10, n_samples: int=None, structure='FunctionalBased'):
         """Manifold of Bézier splines of constant segment degree
 
         :arg M: base manifold in which the curves lie
-        :arg n_segments: integer number of segments
-        :arg degree: integer degree of segments (same for each one)
+        :arg n_segments: number of spline segments
+        :arg degree: degree of segment (same for each one)
         :arg iscycle: boolean indicating whether the splines are closed
+        :arg n_steps: number of steps (i.e. segments) for approximation of geodesics in Bezierfold
+        :arg n_samples: number of samples for quadrature of curve distance in L²(I, M)
+        :arg structure: type of geometric structure
         """
 
         self._M = M
-
-        self._degrees = degree * jnp.ones(n_segments).astype(int)
+        self._degrees = np.full(n_segments, degree)
+        self._nsteps = n_steps
 
         if isscycle:
-            name = 'Manifold of closed Bézier splines of degrees {d} through '.format(d=self._degrees) + str(M)
-            K = jnp.sum(self._degrees - 1) - 1
+            name = 'Manifold of closed Bézier splines of degree {d} through '.format(d=degree) + str(M)
+            K = np.sum(self._degrees - 1) - 1
         else:
-            name = 'Manifold of non-closed Bézier splines of degrees {d} through '.format(d=self._degrees) + str(M)
-            K = jnp.sum(self._degrees - 1) + 1
+            name = 'Manifold of non-closed Bézier splines of degrees {d} through '.format(d=degree) + str(M)
+            K = np.sum(self._degrees - 1) + 1
+
+        self._nsamples = n_samples if n_samples else K+1
+        assert self._nsamples > K
 
         dimension = (K + 1) * M.dim
-        point_shape = [K, M.point_shape]
+        point_shape = (K+1, *M.point_shape)
         self._K = K
         super().__init__(name, dimension, point_shape)
 
         self._iscycle = isscycle
+
+        if structure:
+            getattr(self, f'init{structure}Structure')()
 
     def initFunctionalBasedStructure(self):
         """
@@ -73,110 +79,90 @@ class Bezierfold(Manifold):
         self._connec = structure
 
     @property
-    def M(self):
+    def M(self) -> Manifold:
         """Return the underlying manifold
         """
         return self._M
 
     @property
-    def degrees(self):
+    def degrees(self) -> np.array:
         """Return vector of segment degrees
         """
         return self._degrees
 
     @property
-    def nsegments(self):
-        """Returns the number of segments."""
+    def nsegments(self) -> int:
+        """Returns the number of spline segments."""
         return len(self._degrees)
 
     @property
-    def K(self):
-        """Return the generalized degree if a Bezier spline, i.e., the number of independent control points - 1
+    def K(self) -> int:
+        """Return the generalized degree of a Bezier spline, i.e., the number of independent control points - 1
         """
         return self._K
 
     @property
-    def iscycle(self):
+    def iscycle(self) -> bool:
         """Return whether the Bezierfold consists of non-closed or closed splines
         """
         return self._iscycle
 
-    def correct_type(self, B: BezierSpline):
-        """Check whether B has the right segment degrees"""
-        if jnp.all(jnp.atleast_1d(B.degrees) != self.degrees):
-            return False
-        else:
-            return True
+    @property
+    def nsamples(self):
+        """Returns the number of samples for quadrature of curve distance in L²(I, M)."""
+        return self._nsamples
 
-    def rand(self):
+    @property
+    def nsteps(self):
+        """Returns the number of steps (i.e. segments) for approximation of geodesics in Bezierfold"""
+        return self._nsteps
+
+    def correct_type(self, B: BezierSpline) -> bool:
+        """Check whether B has the right segment degrees"""
+        if jnp.all(jnp.atleast_1d(B.degrees) == self.degrees):
+            return True
+        else:
+            return False
+
+    def rand(self, key: jax.random.KeyArray) -> BezierSpline:
         """Return random Bézier spline"""
-        return BezierSpline(self.M, full_set(self.M, jnp.array([self.M.rand() for k in self.K + 1]),
+        subkeys = jax.random.split(key, self.K + 1)
+        return BezierSpline(self.M, full_set(self.M, jax.vmap(self.M.rand)(subkeys),
                                              self.degrees, self.iscycle))
 
-    def randvec(self, B: BezierSpline):
+    def randvec(self, B: BezierSpline, key: jax.random.KeyArray) -> jnp.array:
         """Return random vector for every independent control point"""
-        return jnp.array([self.M.randvec(p) for p in indep_set(B, self.iscycle)])
+        pts = indep_set(B, self.iscycle)
+        subkeys = jax.random.split(key, len(pts))
+        return jax.vmap(self.M.randvec)(pts, subkeys)
 
-    def zerovec(self):
+    def zerovec(self) -> jnp.array:
         """Return zero vector for every independent control point"""
-        return jnp.array([self.M.zerovec() for k in self.K + 1])
+        return jnp.tile(self.M.zerovec(), (self.K + 1,) + (1,)*len(self.M.point_shape))
 
-    def indep_cp_path(self, P):
-        """Returns concatenated sequence of independent control points of a discrete path
+    def to_coords(self, B: BezierSpline) -> jnp.array:
         """
-        return jnp.concatenate(jnp.asarray([indep_set(p, self.iscycle) for p in P]))
-
-    def full_cp_path(self, P):
-        """Returns array of full control points of splines of a discrete path. The leading dimension enumerates the
-        splines.
+        :param B: Bézier spline
+        :return: Array of independent control points.
         """
-        # # compute discretization parameter
-        # if w_boundary:
-        #     n = int(len(P) / (self.K+1)) - 1
-        # else:
-        #     n = int(len(P) / (self.K+1)) + 1
-        #
-        # P = jnp.asarray(P)
-        # # reshape so that the splines are ordered along first axis
-        # if w_boundary:
-        #     P = P.reshape(n + 1, -1, *[dim for dim in self.M.point_shape])
-        # else:
-        #     P = P.reshape(n - 1, -1, *[dim for dim in self.M.point_shape])
+        return indep_set(B.control_points, self.iscycle)
 
-        # compute number of splines
-        l = int(len(P) / (self.K + 1))
-        # reshape so that the splines are ordered along first axis
-        P = P.reshape(l, self.K + 1, *[dim for dim in self.M.point_shape])
-
-        # full set of control points
-        P_ = []
-        for p in P:
-            P_.append(jnp.asarray(full_set(self.M, p, self.degrees, self.iscycle)))
-
-        return jnp.asarray(P_)
-
-    def grid(self, PP, t):
-        """Evaluate discrete path (i.e., set of splines) at common parameters
-        Parameters
-        ----------
-        PP: [k,..]-array of control points of k Bézier splines
-        t: 1-D array of parameters
-
-        Returns array of values of the splines corresponding to PP at times given in t
-        -------
-
+    def from_coords(self, pts: jnp.array) -> BezierSpline:
         """
-        G = []
-        for p in PP:
-            G.append(jax.vmap(lambda time: BezierSpline(self.M, p).eval(time))(t))
-        return jnp.asarray(G)
+        :param pts: independent control points
+        :return: Bézier spline
+        """
+        pts = full_set(self.M, pts, self.degrees, self.iscycle)
+        return BezierSpline(self.M, pts, self.iscycle)
 
+
+    ############################## Functional-based structure ##############################
     class FunctionalBasedStructure(Metric, Connection):
         """
         Functional-based metric structure
         """
 
-        def __init__(self, Bf):
+        def __init__(self, Bf: Bezierfold):
             """
             Constructor.
             """
@@ -186,374 +172,244 @@ class Bezierfold(Manifold):
         def __str__(self):
             return "Bezierfold-functional-based structure"
 
-        def inner(self, B: BezierSpline, X, Y):
-            """Functional-based metric
-            Vector fields must be given as functions.
+        def inner(self, p: jnp.array, X: jnp.array, Y: jnp.array):
+            """Functional-based metric, i.e. L²(I, TBM).
 
-            :arg B: Bézier spline in M
-            :arg X: generalized Jacobi Field along B
-            :arg Y: generalized Jacobi Field along B
-            :return: inner product of X and Y at B
+            :arg p: Bézier spline in M
+            :arg X: tangent vector at p
+            :arg Y: tangent vector at p
+            :return: inner product of X and Y at p
             """
-            # TODO
-            return
 
-        def norm(self, B, X):
-            """Norm of tangent vectors induced by the functional-based metric
+            M, deg, cyclic = self._Bf.M, self._Bf.degrees, self._Bf.iscycle
 
-            :arg B: Bézier spline in M
-            :arg X: generalized Jacobi Field along B
-            :return: norm of X
-            """
-            return jnp.sqrt(self.inner(B, X, X))
+            def full(q, V):
+                f = lambda pts: jnp.array(full_set(M, pts, deg, cyclic))
+                # fwd-diff. of full_set
+                q_full, V_full = jax.jvp(f, (q,), (V,))
+                # proj. to tangent space
+                vproj = jax.vmap(jax.vmap(M.metric.proj))
+                return q_full, vproj(q_full, V_full)
+
+            # map p, X, Y to all control points
+            p_full, X_full = full(p, X)
+            _, Y_full = full(p, Y)
+
+            # sample spline and generalized Jacobi fields for X, Y
+            t = jnp.linspace(0., self._Bf.nsegments, self._Bf.nsamples)
+            spln = BezierSpline(M, p_full, cyclic)
+            vDpB = jax.vmap(spln.DpB, (0, None))
+            B, Jx = vDpB(t, X_full)
+            _, Jy = vDpB(t, Y_full)
+
+            # eval inner products
+            return jax.vmap(self._Bf.M.metric.inner)(B, Jx, Jy).sum()
 
         @property
-        def typicaldist(self):
+        def typicaldist(self) -> float:
             # approximations via control points
             return self._Bf.K * self._Bf.M.metric.typicaldist
 
-        def dist(self, A, B, n=5):
+        def dist(self, A, B) -> float:
             """Approximate the distance between two Bézier splines
 
             :param A: Bézier spline
             :param B: Bézier spline
-            :param n: work with discrete n-geodesic
-            :return: length of n-geodesic between alp and bet (approximation of the distance)
+            :return: length of n-geodesic between A and B (approximation of the distance)
+            """
+            return jnp.sqrt(self.squared_dist(A, B))
+
+        def squared_dist_extrinsic(self, p, q):
+            t = jnp.linspace(0., self._Bf.nsegments, self._Bf.nsamples)
+            d2 = jax.vmap(self._Bf.M.metric.squared_dist)
+            return d2(sample(self._Bf, p, t), sample(self._Bf, q, t)).sum()
+
+        def squared_dist(self, p, q):
+            n = self._Bf.nsteps
+            gamma = self.discgeodesic(self._Bf, p, q, n=n)
+            return jax.vmap(self.squared_dist_extrinsic)(gamma[:-1], gamma[1:]).sum() * n
+
+        @staticmethod
+        @partial(jax.jit, static_argnames=['Bf'])
+        def discexp(Bf, a, b):
+            """
+            Compute c such that [a,b,c] is a discrete 2-geodesic.
+            :param Bf: Bezierfold a ang b live in
+            :param a: Bézier spline in manifold M (i.e. independend control points thereof)
+            :param b: Bézier spline in manifold M (i.e. independend control points thereof)
+            :return: c
             """
 
-            Gam = self.discgeodesic(A, B, n=n)
+            t = jnp.linspace(0., Bf.nsegments, Bf.nsamples)
 
-            d = 0
-            for i in range(len(Gam) - 1):
-                y, t = self.loc_dist(Gam[i], Gam[i + 1])
-                d = d + jnp.trapz(y, x=t)
+            # initial guess for c
+            c = jax.vmap(Bf.M.connec.geopoint, (0, 0, None))(a, b, 2.)
 
-            return d
+            # gradient of sum-of-squared-distances between samples along alpha and beta w.r.t. ctrl. pts. of alpha
+            def G(alpha, beta):
+                egrad = jax.grad(lambda x: jax.vmap(Bf.M.metric.squared_dist)(sample(Bf, x, t), sample(Bf, beta, t)).sum())
+                return jax.vmap(Bf.M.metric.egrad2rgrad)(alpha, egrad(alpha))
 
-        def discgeodesic(self, A, B, n=5, maxtime=1000, maxiter=30, mingradnorm=1e-6, minstepsize=1e-10,
-                         maxcostevals=5000, verbosity=0, mode='control_points'):
-            """Discrete shortest path through space of Bézier curves
+            # gradient for b w.r.t. a
+            G_a = G(b, a)
 
-            :param A: Bézier spline in manifold M or control points thereof
-            :param B: Bézier spline in manifold M or control points thereof
+            # discrete Euler-Lagrange cnd. of path energy for [a,b,c]
+            def F(x):
+                return G(b, x) + G_a
+
+            # solve F(x) = 0
+            N = PowerManifold(Bf.M, Bf.K+1)
+            return RiemannianNewtonRaphson.solve(N, F, c, stepsize=.1, maxiter=Bf.dim)
+
+        def exp(self, p: jnp.array, X: jnp.array) -> jnp.array:
+            n = self._Bf.nsteps
+            # times for sampling splines
+            t = jnp.linspace(0., self._Bf.nsegments, self._Bf.nsamples)
+
+            def body(carry, _):
+                a, b = carry
+                # compute c s.t. [a,b,c] is discrete 2-geodesic
+                c = self.discexp(self._Bf, a, b)
+                return (b, c), None
+
+            q = jax.vmap(self._Bf.M.connec.exp)(p, X/n)
+            (_, q), _ = jax.lax.scan(body, (p, q), jnp.empty(n))
+
+            return q
+
+        def log(self, p: jnp.array, q: jnp.array) -> jnp.array:
+            n = self._Bf.nsteps
+            gamma = self.discgeodesic(self._Bf, p, q, n=n)
+            return jax.vmap(self._Bf.M.connec.log)(p, gamma[1]) * n
+
+        @staticmethod
+        @partial(jax.jit, static_argnames=['Bf', 'n'])
+        def discgeodesic(Bf: Bezierfold, p: jnp.array, q: jnp.array, n: int = 5, maxiter: int = 100, minchange: float = 1e-6) -> jnp.array:
+            """Discrete shortest path through space of Bézier splines.
+
+            :param Bf: Bezierfold p and q live in
+            :param p: Bézier spline in manifold M (i.e. independent control points thereof)
+            :param q: Bézier spline in manifold M (i.e. independent control points thereof)
             :param n: create discrete n-geodesic
-            :param maxtime: see Pymanopt's solver class
-            :param maxiter: see Pymanopt's solver class
-            :param mingradnorm: see Pymanopt's solver class
-            :param minstepsize: see Pymanopt's solver class
-            :param maxcostevals: see Pymanopt's solver class
-            :param logverbosity: see Pymanopt's solver class (0 to 2)
-            :param mode : return array of control points if 'control_points' and list of curves if 'curves'
+            :param maxiter: max. number of iterations
+            :param minchange: min. change in coordinates to declare convergence
             :return: control points of the Bézier splines along the shortest path
             """
 
-            PA = A.control_points if isinstance(A, BezierSpline) else A
-            PB = B.control_points if isinstance(B, BezierSpline) else B
+            # Initialize inner splines of path
 
-            def init_disc_curve():
-                """Initialize discrete curve by aligning control points along geodesics
-                :return: discrete curve as array of independent control points of Bézier splines (without A, B)
-                """
-                # only take independent control points
-                pa = indep_set(PA, iscycle=self._Bf.iscycle)
-                pb = indep_set(PB, iscycle=self._Bf.iscycle)
+            # logs between corresponding control points of A and B (save repeated computations)
+            X = jax.vmap(Bf.M.connec.log)(p, q)
+            # exps
+            t_exp = lambda t: jax.vmap(Bf.M.connec.exp)(p, t * X)
+            H = jax.vmap(t_exp)(jnp.linspace(0., 1., n + 1)[1:-1])
+            # add start-/endpt.
+            H = jnp.concatenate((jnp.expand_dims(p, axis=0), H, jnp.expand_dims(q, axis=0)))
 
-                # logs between corresponding control points of A and B (save repeated computations)
-                X = jnp.zeros(pa.shape)
-                for j in range(len(pa)):
-                    X = X.at[j].set(self._Bf.M.connec.log(pa[j], pb[j]))
+            # Discrete path shortening flow
+            def body(args):
+                x, _, i = args
+                x, d = curve_shortening_step(Bf, x)
+                # jax.debug.print("{}: {}", i, d)
+                return x, d, i + 1
 
-                H = []
-                # initialize control points along geodesics
-                for i in range(1, n):
-                    P_i = jnp.zeros(pa.shape)
-                    for j in range(len(pa)):
-                        P_i = P_i.at[j].set(self._Bf.M.connec.exp(pa[j], i / n * X[j]))
+            # check convergence
+            def cond(args):
+                _, d, i = args
+                c = jnp.array([d > minchange, i < maxiter])
+                return jnp.all(c)
 
-                    # align all control points of splines along leading axis
-                    H.append(jnp.asarray(P_i))
+            H, *_ = jax.lax.while_loop(cond, body, (H, jnp.array(1.), jnp.array(0)))
 
-                return jnp.concatenate(H)
+            return H
 
-            # initialize inner splines of path
-            H0 = init_disc_curve()
-
-            # Solve optimization problem with pymanopt by optimizing over independent control points
-            pymanoptM = ManoptWrap(self._Bf.M)
-            # there are n-1 inner splines
-            N = Product([pymanoptM] * (n - 1) * int(self._Bf.K + 1))
-
-            @jax.jit
-            def cost_(a, b):
-                return jnp.sum(jax.vmap(self._Bf.M.metric.squared_dist, in_axes=(0, 0), out_axes=0)(a, b))
-
-            @pymanopt.function.jax(N)
-            def cost(*P):
-                # TODO: I think we could jit the whole thing if we make the discretization parameter explicit here -> could be misused
-                Pfull = jnp.concatenate((jnp.expand_dims(PA, axis=0), self._Bf.full_cp_path(jnp.asarray(P)),
-                                         jnp.expand_dims(PB, axis=0)))
-
-                # sample splines at as many discrete points as we have free control points
-                t = jnp.linspace(0, self._Bf.nsegments, num=int(np.sum(self._Bf.degrees + 1)))
-
-                H = self._Bf.grid(Pfull, t)
-
-                c = 0
-                for i in range(len(H)):
-                    c = c + cost_(H[i], H[i + 1])
-
-                return c
-
-            problem = Problem(manifold=N, cost=cost)
-
-            solver = SteepestDescent(max_time=maxtime, max_iterations=maxiter, min_gradient_norm=mingradnorm,
-                                     min_step_size=minstepsize, max_cost_evaluations=maxcostevals,
-                                     log_verbosity=verbosity)
-
-            opt = solver.run(problem, initial_point=H0)
-
-            H_opt = self._Bf.full_cp_path(jnp.array(opt.point))
-
-            if mode == 'control_points':
-                return jnp.concatenate((jnp.expand_dims(PA, axis=0), H_opt, jnp.expand_dims(PB, axis=0)))
-            else:
-                splines = [A]
-                for P in H_opt:
-                    splines.append(BezierSpline(self._Bf.M, P))
-                splines.append(B)
-                return splines
-
-        def loc_dist(self, P, Q, t=None):
-            """ Evaluate distance between two Bézier splines in M at several points
-
-            :param P: array with control points of a Bézier spline
-            :param Q: array with control points of Bézier spline
-            :param t: vector with time points
-            The control points have the size [k, l,...] where k is the number of segments and l-1 the degree.
-
-            :return: vector with point-wise distances
-            """
-            A = BezierSpline(self._Bf.M, P, self._Bf.iscycle)
-            B = BezierSpline(self._Bf.M, Q, self._Bf.iscycle)
-
-            if t is None:
-                # sample segments of higher degree more densely
-                t = jnp.linspace(0, 1, num=P.shape[1])
-                for i in range(1, A.nsegments):
-                    t = jnp.concatenate((t, jnp.linspace(i, i + 1, num=P.shape[1])[1:]))
-
-            a_val = [A.eval(time) for time in t]
-            b_val = [B.eval(time) for time in t]
-            d_M = jnp.zeros(len(t))
-            for i in range(len(t)):
-                d_M = d_M.at[i].set(self._Bf.M.metric.dist(a_val[i], b_val[i]))
-            return d_M, t
-
-        def disc_path_energy(self, H):
-            """Discrete path energy
-
-            :param H: discrete path given array of control points of Bézier splines of the same degrees
-            :return: energy of H
-            """
-            d = 0
-            for i in range(len(H) - 1):
-                # dh, _ = self.loc_dist(H[i], H[i + 1])
-                # d = d + jnp.sum(dh ** 2, axis=0)
-                y, t = self.loc_dist(H[i], H[i + 1])
-                d = d + jnp.trapz(y, x=t)
-
-            return d
-
-        def mean(self, B, n=3, delta=1e-5, min_stepsize=1e-10, nsteps=20, verbosity=1):
+        @staticmethod
+        @partial(jax.jit, static_argnames=['Bf'])
+        def mean(Bf, B, maxiter: int = 500, minchange: float = 1e-5):
             """Discrete mean of a set of Bézier splines
 
-            :param B: list of Bézier splines, every curve can have arbitrary many segments which must have the same degrees
-            :param n: use discrete n-geodesics
-            :param delta: iteration stops when the difference in energy between the new and old iterate drops below
-            delta
-            :param min_stepsize: iteration stops when the step length is smaller than the given value
-            :param nsteps: maximal number of iterations
-            :param verbosity: 0 (no text) or 1 (print information on convergence)
-            :return: mean curve
+            :param Bf: Bezierfold
+            :param B: array of splines (i.e. independent control points thereof)
+            :param maxiter: max. number of iterations
+            :param minchange: min. change in coordinates to declare convergence
+            :return: (independent control points of) mean curve
             """
+            # times at which to sample splines
+            t = jnp.linspace(0, Bf.nsegments, Bf.nsamples)
 
-            def legs(meaniterate):
-                """ Construct legs of polygonal spider, i.e., discrete n-geodesics between mean iterate and input curves
-                """
-                # TODO: make parallel
-                # def fun(b):
-                #     return self.discgeodesic(meaniterate, b, n=n)
+            # setup 'regression' problem for mean (where there are len(B) targets for each time pt.)
 
-                F = []
-                for b_ in B:
-                    F.append(self.discgeodesic(meaniterate, b_, n=n))
+            # search space: k-fold product of M
+            N = PowerManifold(Bf.M, Bf.K+1)
 
-                return jnp.array(F)
-                # return jax.vmap(fun)(B)
+            # sum-of-squared-distances
+            def ssd(pts, Y, param):
+                x = sample(Bf, pts, param)
+                d = jax.vmap(jax.vmap(Bf.M.metric.squared_dist), (None, 0))(x, Y)
+                return jnp.sum(d) / np.prod(Y.shape[:2])
 
-            @jax.jit
-            def loss(F):
-                """Loss in optimization for mean
-                """
-                # P_G = 0
-                # for HH in FF:
-                #     P_G = P_G + self.disc_path_energy(HH)
-                # return P_G
-                return jnp.sum(jax.vmap(self.disc_path_energy)(F))
-
-            # measure computation time
-            begin_mean = time.time()
-
-            B = extract_control_points(B)
+            # compute mean spline
 
             # initialize i-th control point of the mean as the mean of the i-th control points of the data
-            C = ExponentialBarycenter
-            P = []
+            mean = lambda b: ExponentialBarycenter.compute(Bf.M, b)
+            init = jax.vmap(mean, 1)(B)
 
-            # loop through segments
-            m = jnp.array(B[0, 0].shape)
-            for l in range(self._Bf.nsegments):
-                P_l = jnp.zeros(m)
-                for i in range(self._Bf.degrees[0] + 1):
-                    D = []
-                    # take the i-th control point of the l-th segment from all data curves
-                    for bet in B:
-                        D.append(bet[l, i])
+            # init legs, i.e. n-geodesics between mean and input curves B
+            discgeodesic = Bezierfold.FunctionalBasedStructure.discgeodesic
+            F_init = jax.vmap(discgeodesic, (None, None, 0, None))(Bf, init, B, Bf.nsteps)
 
-                    # initialize i-th control point of the l-th segment as mean of corresponding data control points
-                    P_l = P_l.at[i].set(C.compute(self._Bf.M, jnp.array(D)))
+            def body(args):
+                x, F, change, i = args
 
-                P.append(P_l)
-            P_mean_iterate = jnp.array(P)
+                # update x via regression
+                Y = jax.vmap(sample, (None, 0, None))(Bf, F[:, 1], t)
+                opt = RiemannianSteepestDescent.fixedpoint(N, lambda a: ssd(a, Y, t), x)
+                change = jnp.linalg.norm(opt - x, np.inf)
 
-            # initial legs
-            F = legs(P_mean_iterate)
-            bet_mean = BezierSpline(self._Bf.M, P_mean_iterate, self._Bf.iscycle)
-            # initialize stopping parameters
-            Eold = 10
-            Enew = 1
-            stepsize = 10
-            step = 0
-            while jnp.abs(Enew - Eold) > delta and stepsize > min_stepsize and step <= nsteps:
-                # one more step
-                step += 1
-                # save old "stopping parameters"
-                Eold = Enew
-                F_old = F
-                old_mean = BezierSpline(self._Bf.M, bet_mean.control_points)
+                # update legs of 'polygonal spider'
+                F = F.at[:, 0].set(opt)
+                F, d = jax.vmap(curve_shortening_step, (None, 0))(Bf, F)
+                change = jnp.array([change, jnp.linalg.norm(d, np.inf)]).max()
 
-                # new data for regression
-                # sample splines at so many discrete points as we have free control points
-                # t = jnp.linspace(0, self._Bf.nsegments, num=int(np.sum(self._Bf.degrees + 1)))
-                t = jnp.linspace(0, self._Bf.nsegments, num=self._Bf.K + 1)
-                Y = []
+                jax.debug.print("{}: {}", i, change)
+                return opt, F, change, i + 1
 
-                for H in F:
-                    # evaluate first "joint" at t
-                    bet = BezierSpline(self._Bf.M, H[1])
-                    Y.append(jnp.array([bet.eval(time) for time in t]))
+            def cond(args):
+                _, _, change, i = args
+                c = jnp.array([change > minchange, i < maxiter])
+                return jnp.all(c)
 
-                # make regression w.r.t. mean values -> faster
-                mean_Y = jnp.zeros_like(Y[0])
-                for i in range(len(mean_Y)):
-                    dat = []
-                    for j in range(len(Y)):
-                        # take value of each curve at time t_i
-                        dat.append(Y[j][i])
-                    # mean at t_i if first joints
-                    mean_Y = mean_Y.at[i].set(C.compute(self._Bf.M, jnp.array(dat)))
+            mu, F_mu, *_ = jax.lax.while_loop(cond, body, (init, F_init, 1., 0))
 
-                if verbosity == 2:
-                    print('Step ' + str(step) + ': Updating the mean...')
+            return mu, F_mu
 
-                regression = RiemannianRegression(self._Bf.M, mean_Y, t, self._Bf.degrees, iscycle=self._Bf.iscycle,
-                                                  verbosity=2)
-                bet_mean = regression.trend
 
-                # update discrete paths
-                if verbosity == 2:
-                    print('Step ' + str(step) + ': Updating discrete paths...')
-                    start = time.time()
-                F = legs(bet_mean)
+        def gram(self, B_mean: jnp.array, F: jnp.array):
+            """Approximates the Gram matrix for a curve data set.
 
-                if verbosity == 2:
-                    end = time.time()
-                    print('...took ' + "{:.2f}".format(end - start) + ' seconds to update the legs.')
-
-                    print('Evaluating energy...')
-                Enew = loss(F)
-
-                # check for divergence
-                if Enew > Eold:
-                    print('Stopped because the energy increased.')
-                    finish_mean = time.time()
-                    print('Computing the mean took ' + "{:.2f}".format(finish_mean - begin_mean) + ' seconds.')
-                    return old_mean, F_old
-
-                # compute step size
-                step_size = 0
-                for l, P in enumerate(bet_mean.control_points):
-                    for j, p in enumerate(P):
-                        step_size = step_size + self._Bf.M.metric.dist(p, old_mean.control_points[l][j]) ** 2
-                stepsize = jnp.sqrt(step_size)
-
-                if verbosity > 0:
-                    print('Mean-Comp-Step', step, 'Energy:', Enew, 'Enew - Eold:', Enew - Eold)
-
-            finish_mean = time.time()
-            print('Computing the mean took ' + "{:.2f}".format(finish_mean - begin_mean) + '.')
-
-            return bet_mean, F
-
-        def gram(self, B, B_mean=None, F=None, n=5, delta=1e-5, min_stepSize=1e-10, nsteps=20, eps=1e-5, n_stepsGeo=10,
-                 verbosity=2):
-            """Approximates the Gram matrix for a curve data set
-
-            :param B: list of Bézier splines
-            :param B_mean: mean of curves in B
-            :param F: discrete spider, i.e, discrete paths from mean to data
-            :param n: see mean method
-            :param delta: see mean method
-            :param min_stepSize: see mean method
-            :param nsteps: see mean method
-            :param eps: see mean method
-            :param n_stepsGeo: see mean method
-            :param verbosity: see mean method
-            :return P_G: Gram matrix
-            :return bet_mean: mean curve of data curves
-            :return F: discrete geodesics from mean to data curves
+            :param B_mean: mean of curves in B (as returned by #mean)
+            :param F: discrete spider, i.e, discrete paths from mean to data (as returned by #mean)
+            :return G: Gram matrix
             """
-
-            if B_mean is None:
-                B_mean, F = self.mean(B, n=n, delta=delta, min_stepsize=min_stepSize, nsteps=nsteps, eps=eps,
-                                      n_stepsGeo=n_stepsGeo, verbosity=verbosity)
-
-            if verbosity == 2:
-                print('Computing Gram matrix...')
-
             n = len(F)
             G = jnp.zeros((n, n))
             for i, si in enumerate(F):
                 for j, sj in enumerate(F[i:], start=i):
                     G = G.at[i, j].set(n / 2 * (
-                            self.dist(B_mean, si[1], n=1) ** 2 + self.dist(B_mean, sj[1], n=1) ** 2
-                            - self.dist(si[1], sj[1], n=1) ** 2))
+                            self.squared_dist_extrinsic(B_mean, si[1])
+                            + self.squared_dist_extrinsic(B_mean, sj[1])
+                            - self.squared_dist_extrinsic(si[1], sj[1]))
+                            )
                     G = G.at[j, i].set(G[i, j])
 
-            return G, B_mean, F
-
-        ### not imlemented ###
-
-        def geopoint(self, alp, bet, t):
-            raise NotImplementedError('This function has not been implemented yet.')
-
-        def pairmean(self, alp, bet):
-            raise NotImplementedError('This function has not been implemented yet.')
+            return G
 
         def proj(self, X, H):
-            raise NotImplementedError('This function has not been implemented yet.')
+            return H
 
         egrad2rgrad = proj
+
+        ### not imlemented ###
 
         def ehess2rhess(self, p, G, H, X):
             """Converts the Euclidean gradient P_G and Hessian H of a function at
@@ -564,12 +420,6 @@ class Bezierfold(Manifold):
 
         def retr(self, R, X):
             return self.exp(R, X)
-
-        def exp(self, R, X):
-            raise NotImplementedError('This function has not been implemented yet.')
-
-        def log(self, R, Q):
-            raise NotImplementedError('This function has not been implemented yet.')
 
         def curvature_tensor(self, p, X, Y, Z):
             raise NotImplementedError('This function has not been implemented yet.')
@@ -584,19 +434,42 @@ class Bezierfold(Manifold):
             raise NotImplementedError('This function has not been implemented yet.')
 
 
-def extract_control_points(B):
-    """ Extract array of control points from Bézier splines
+def sample(Bf: Bezierfold, pts: jnp.array, t: jnp.array) -> jnp.array:
+    # vectorized methods for sampling of splines (from independent ctrl. pts.)
+    return jax.vmap(lambda p, s: Bf.from_coords(p).eval(s), (None, 0))(pts, t)
 
-    Parameters
-    ----------
-    B set of Bézier splines of same type
 
-    Returns array of corresponding control points
-    -------
+def curve_shortening_step(Bf: Bezierfold, x: jnp.array) -> Tuple[jnp.array, float]:
+    """Single step of discrete curve shortening flow: Replace inner node with
+     average of its neighbours (s.t. it's the midpoint of the connecting 2-geodesic).
 
+    :param Bf: Bezierfold
+    :param x: Discrete path in Bf (i.e. independent control points of nodes)
+    :return: updated nodes, inf-norm of update
     """
-    P = []
-    for b in B:
-        P.append(b.control_points)
+    deg = Bf.degrees[0]
+    nseg = Bf.nsegments
 
-    return jnp.array(P)
+    t = jnp.linspace(0., nseg, Bf.nsamples)
+    tt = jnp.concatenate([t, t])
+
+    def body(carry, cur_post):
+        pre, d = carry
+        cur, post = cur_post
+        # sample pre & post
+        pre = sample(Bf, pre, t)
+        post = sample(Bf, post, t)
+        # update (fit cur to pre & post)
+        Y = jnp.concatenate([pre, post])
+        opt = RiemannianRegression.fit(Bf.M, Y, tt, cur, deg, nseg)
+        # update inf-norm
+        d = jnp.array([d, jnp.linalg.norm(opt - cur, np.inf)]).max()
+        return (opt, d), opt
+
+    # stack each node with its successor
+    stacked = jnp.stack([x[1:-1], x[2:]], axis=1)
+
+    # update nodes one-by-one
+    (_, d), inner_nodes = jax.lax.scan(body, (x[0], 0.), stacked)
+
+    return jnp.concatenate((x[None, 0], inner_nodes, x[None, -1])), d

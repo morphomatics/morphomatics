@@ -15,7 +15,6 @@ import jax.numpy as jnp
 
 from morphomatics.manifold import Manifold, Connection, LieGroup, SO3, GLpn
 from morphomatics.manifold.SO3 import logm as SO3_logm, expm as SO3_expm
-from morphomatics.manifold.util import randn_with_key
 
 class SE3(Manifold):
     """Returns the product manifold SE(3)^k, i.e., a product of k rigid body motions.
@@ -59,16 +58,18 @@ class SE3(Manifold):
     def k(self):
         return self._k
 
-    def rand(self):
+    def rand(self, key: jax.random.KeyArray):
+        k1, k2 = jax.random.split(key, 2)
         return jnp.zeros(self.point_shape)                   \
-            .at[:, :3, :3].set(self._SO.rand())             \
-            .at[:, :3, 3].set(randn_with_key((self._k, 3))) \
+            .at[:, :3, :3].set(self._SO.rand(k1))             \
+            .at[:, :3, 3].set(jax.random.normal(k2, (self._k, 3))) \
             .at[:, 3, 3].set(1)
 
-    def randvec(self, P):
+    def randvec(self, P, key: jax.random.KeyArray):
+        k1, k2 = jax.random.split(key, 2)
         return jnp.zeros(self.point_shape)                       \
-            .at[:, :3, :3].set(self._SO.randvec(P[:, :3, :3]))  \
-            .at[:, :3, 3].set(randn_with_key((self._k, 3)))
+            .at[:, :3, :3].set(self._SO.randvec(P[:, :3, :3], k1))  \
+            .at[:, :3, 3].set(jax.random.normal(k2, (self._k, 3)))
 
     def zerovec(self):
         return jnp.zeros(self.point_shape)

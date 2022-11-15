@@ -14,8 +14,8 @@ from setuptools import setup
 
 setup(
   name = 'morphomatics',
-  packages = ['morphomatics', 'morphomatics.geom', 'morphomatics.manifold', 'morphomatics.stats'],
-  version = '2.0',
+  packages = ['morphomatics', 'morphomatics.geom', 'morphomatics.manifold', 'morphomatics.stats', 'morphomatics.opt'],
+  version = '2.1',
   version_name = 'Accelerated Augustus',
   license='ZIB Academic License',
   description = 'Geometric morphometrics in non-Euclidean shape spaces',
@@ -24,12 +24,12 @@ setup(
   url = 'https://morphomatics.github.io/',
   keywords = ['Shape Analysis', 'Morphometrics', 'Geometric Statistics'],
   install_requires=[
-          'jax>=0.3.14',
-          'jaxlib>=0.3.14',
+          'jax>=0.3.16',
+          'jaxlib>=0.3.16',
           'numpy',
-          'scipy',
-          'pymanopt>=2.0.0'
+          'scipy'
       ],
+  extras_require = {'all': ['pymanopt>=2.0.1']},
   classifiers=[
     'Development Status :: 4 - Beta',
     'Intended Audience :: Developers',

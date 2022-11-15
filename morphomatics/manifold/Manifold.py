@@ -11,6 +11,7 @@
 ################################################################################
 
 import abc
+import jax
 
 from morphomatics.manifold import Metric, Connection, LieGroup
 
@@ -67,11 +68,11 @@ class Manifold(metaclass=abc.ABCMeta):
         return self._group
 
     @abc.abstractmethod
-    def rand(self):
+    def rand(self, key: jax.random.KeyArray):
         """Returns a random point of the manifold."""
 
     @abc.abstractmethod
-    def randvec(self, p):
+    def randvec(self, p, key: jax.random.KeyArray):
         """Returns a random vector in the tangent space at p."""
 
     @abc.abstractmethod

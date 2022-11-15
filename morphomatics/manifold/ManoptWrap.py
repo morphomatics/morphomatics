@@ -12,21 +12,78 @@
 
 import functools
 
+import numpy as np
+
 import jax
 import jax.numpy as jnp
 import jax.tree_util as tree
 
-import pymanopt
-from pymanopt.autodiff.backends._backend import Backend
-from pymanopt.autodiff import backend_decorator_factory
-from pymanopt.manifolds.manifold import Manifold
+from .Manifold import Manifold
 
-class ManoptWrap(Manifold):
+try:
+    import pymanopt
+
+    from pymanopt.manifolds.manifold import Manifold as ManoptManifold
+    from pymanopt.autodiff.backends._backend import Backend
+    from pymanopt.autodiff import backend_decorator_factory
+
+
+    def conjugate_result(function):
+        @functools.wraps(function)
+        def wrapper(*args, **kwargs):
+            return tree.tree_map(jnp.conj, function(*args, **kwargs))
+
+        return wrapper
+
+    class JaxBackend(Backend):
+        def __init__(self):
+            super().__init__("Jax")
+
+        @staticmethod
+        def is_available():
+            return jax is not None
+
+        @Backend._assert_backend_available
+        def prepare_function(self, function):
+            return function
+
+        @Backend._assert_backend_available
+        def generate_gradient_operator(self, function, num_arguments):
+            gradient = conjugate_result(
+                jax.grad(function) if num_arguments == 1 else
+                jax.grad(function, argnums=list(range(num_arguments)))
+            )
+            return gradient
+
+        @staticmethod
+        def _hessian_vector_product(function, argnum):
+            raise NotImplementedError()
+
+        @Backend._assert_backend_available
+        def generate_hessian_operator(self, function, num_arguments):
+            raise NotImplementedError()
+
+
+    if "jax" not in pymanopt.autodiff.backends.__all__:
+        factory = backend_decorator_factory(JaxBackend)
+        pymanopt.autodiff.backends.jax = factory
+        pymanopt.function.jax = factory
+        pymanopt.autodiff.backends.__all__.append("jax")
+        pymanopt.function.__all__.append("jax")
+
+except ImportError:
+    _has_manopt = False
+    ManoptManifold = object
+else:
+    _has_manopt = True
+
+
+class ManoptWrap(ManoptManifold):
     """
     Wraper for pymanopt to make manifolds from morphomatics compatible.
     """
 
-    def __init__(self, M):
+    def __init__(self, M: Manifold):
         self._M = M
         super().__init__(str(M), M.dim) # as of v0.2.6rc1
 
@@ -100,13 +157,15 @@ class ManoptWrap(Manifold):
 
     def random_point(self):
         """Returns a random point on the manifold."""
-        return self._M.rand()
+        key = jax.random.PRNGKey(np.random.randint(1 << 32))
+        return self._M.rand(key)
 
     def random_tangent_vector(self, X):
         """Returns a random vector in the tangent space at `X`. This does not
         follow a specific distribution.
         """
-        return self._M.randvec(X)
+        key = jax.random.PRNGKey(np.random.randint(1 << 32))
+        return self._M.randvec(X, key)
 
     def zero_vector(self, X):
         """Returns the zero vector in the tangent space at X."""
@@ -124,48 +183,3 @@ class ManoptWrap(Manifold):
         mid-way between X and Y on the geodesic arc joining them.
         """
         return self.exp(X, 0.5 * self.log(X, Y))
-
-
-def conjugate_result(function):
-    @functools.wraps(function)
-    def wrapper(*args, **kwargs):
-        return tree.tree_map(jnp.conj, function(*args, **kwargs))
-
-    return wrapper
-
-
-class JaxBackend(Backend):
-    def __init__(self):
-        super().__init__("Jax")
-
-    @staticmethod
-    def is_available():
-        return jax is not None
-
-    @Backend._assert_backend_available
-    def prepare_function(self, function):
-        return function
-
-    @Backend._assert_backend_available
-    def generate_gradient_operator(self, function, num_arguments):
-        gradient = conjugate_result(
-            jax.grad(function) if num_arguments == 1 else
-            jax.grad(function, argnums=list(range(num_arguments)))
-        )
-        return gradient
-
-    @staticmethod
-    def _hessian_vector_product(function, argnum):
-        raise NotImplementedError()
-
-    @Backend._assert_backend_available
-    def generate_hessian_operator(self, function, num_arguments):
-        raise NotImplementedError()
-
-
-if "jax" not in pymanopt.autodiff.backends.__all__:
-    factory = backend_decorator_factory(JaxBackend)
-    pymanopt.autodiff.backends.jax = factory
-    pymanopt.function.jax = factory
-    pymanopt.autodiff.backends.__all__.append("jax")
-    pymanopt.function.__all__.append("jax")

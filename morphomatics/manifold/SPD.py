@@ -16,7 +16,7 @@ import jax.numpy as jnp
 from jax.scipy.linalg import expm_frechet
 
 from morphomatics.manifold import Manifold, Metric, Connection, LieGroup
-from morphomatics.manifold.util import multisym, randn_with_key
+from morphomatics.manifold.util import multisym
 
 class SPD(Manifold):
     """Returns the product manifold Sym+(d)^k, i.e., a product of k dxd symmetric positive matrices (SPD).
@@ -271,15 +271,15 @@ class SPD(Manifold):
 
         return self.connec.exp(X, d * v)
 
-    def randsym(self):
-        S = randn_with_key(self.point_shape)
+    def randsym(self, key: jax.random.KeyArray):
+        S = jax.random.normal(key, self.point_shape)
         return multisym(S)
 
-    def rand(self):
-        return self.group.exp(self.randsym())
+    def rand(self, key: jax.random.KeyArray):
+        return self.group.exp(self.randsym(key))
 
-    def randvec(self, X):
-        U = self.randsym()
+    def randvec(self, X, key: jax.random.KeyArray):
+        U = self.randsym(key)
         nrmU = jnp.sqrt(jnp.tensordot(U, U, axes=U.ndim))
         return U / nrmU
 

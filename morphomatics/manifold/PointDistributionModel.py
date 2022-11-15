@@ -10,11 +10,12 @@
 #                                                                              #
 ################################################################################
 
+import jax
 import jax.numpy as jnp
 
 from ..geom import Surface
 from . import ShapeSpace, Metric, Connection
-from .util import align, randn_with_key
+from .util import align
 
 
 class PointDistributionModel(ShapeSpace, Metric, Connection):
@@ -89,8 +90,8 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
     def curvature_tensor(self, p, X, Y, Z):
         return self.zerovec()
 
-    def rand(self):
-        v = randn_with_key(self.ref.v.shape)
+    def rand(self, key: jax.random.KeyArray):
+        v = jax.random.normal(key, self.ref.v.shape)
         return self.to_coords(v)
 
     def zerovec(self):

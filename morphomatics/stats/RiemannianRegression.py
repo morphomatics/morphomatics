@@ -10,21 +10,18 @@
 #                                                                              #
 ################################################################################
 
+from functools import partial, cached_property
+from typing import List, Tuple
+
 import numpy as np
 
 import jax
 import jax.numpy as jnp
 
 from morphomatics.geom import BezierSpline
+from morphomatics.manifold import Manifold, PowerManifold
+from morphomatics.opt import RiemannianSteepestDescent
 from morphomatics.stats import ExponentialBarycenter
-
-from morphomatics.manifold import Manifold
-from morphomatics.manifold.ManoptWrap import ManoptWrap
-
-import pymanopt
-from pymanopt import Problem
-from pymanopt.manifolds import Product
-from pymanopt.optimizers import SteepestDescent
 
 
 class RiemannianRegression(object):
@@ -40,101 +37,92 @@ class RiemannianRegression(object):
     Proc. Medical Image Computing and Computer Assisted Intervention (MICCAI), 2020.
     """
 
-    def __init__(self, M: Manifold, Y, param, degrees, iscycle=False, P_init=None, verbosity=2, maxtime=100000,
-                 maxiter=100, mingradnorm=1e-6, minstepsize=1e-10, maxcostevals=5000):
-        """Compute regression with Bézier splines for data in a manifold M using pymanopt.
+    def __init__(self, M: Manifold, Y: jnp.array, param: jnp.array, degree: int, n_segments: int = 1, iscycle=False,
+                 P_init=None, maxiter=100, mingradnorm=1e-6):
+        """Compute regression with Bézier splines for data in a manifold M.
 
         :param M: manifold
         :param Y: array containing M-valued data.
-        :param param: vector with scalars between 0 and the number of intended segments corresponding to the data points in
-        Y. The integer part determines the segment to which the data point belongs.
-        :param degrees: vector of length L; the l-th entry is the degrees of the l-th segment of the spline. All entries must
-        be positive. For a closed spline, L > 1, degrees[0] > 2 and degrees[-1] > 2 must hold.
+        :param param: vector with scalars between 0 and the number of intended segments corresponding to the data points
+        inY. The integer part determines the segment to which the data point belongs.
+        :param degree: degree of each segment of the spline. Must be > 0/2 for non-/cyclic splines.
+        :param n_segments: number of segments. Must be positive.
         :param iscycle: boolean that determines whether a closed curve C1 spline shall be modeled.
         :param P_init: initial guess
-        :param verbosity: 0 is silent to gives the most information, see pymanopt's problem class
-
-        :param maxtime: maximum time for steepest descent
         :param maxiter: maximum number of iterations in steepest descent
         :param mingradnorm: stop iteration when the norm of the gradient is lower than mingradnorm
-        :param minstepsize: stop iteration when step the stepsize is smaller than minstepsize
-        :param maxcostevals: maximum number of allowed cost evaluations
 
-        :return P: list of control points of the optimal Bézier spline
+        :return P: array of control points of the optimal Bézier spline
         """
-        degrees = jnp.atleast_1d(degrees)
-
-        # sort data
-        ind = jnp.argsort(param)
-        param = param[ind]
-        Y = Y[ind]
+        degrees = np.full(n_segments, degree)
 
         self._M = M
         self._Y = Y
         self._param = param
 
-        pymanoptM = ManoptWrap(M)
-        # Solve optimization problem with pymanopt by optimizing over independent control points
-        if iscycle:
-            N = Product([pymanoptM] * int(np.sum(degrees - 1)))
-        else:
-            N = Product([pymanoptM] * int(np.sum(degrees - 1) + 2))
-
-        # Cost
-        cost_ = jax.jit(lambda cp, Y_, t_: sumOfSquared(BezierSpline(M, cp, iscycle=iscycle), Y_, t_))
-        @pymanopt.function.jax(N)
-        def cost(*P):
-            P = jnp.stack(list(P))
-            control_points = full_set(M, P, degrees, iscycle)
-            return cost_(control_points, Y, param)
-
-        grad_ = jax.grad(cost, argnums=np.arange(len(N.point_layout)))
-        @pymanopt.function.jax(N)
-        def grad(*P):
-            return jax.vmap(pymanoptM.euclidean_to_riemannian_gradient)(jnp.asarray(P), jnp.asarray(grad_(*P)))
-
-        # # Gradient
-        # grad_ = jax.jit(lambda cp, Y_, t_: self.gradSumOfSquared(BezierSpline(M, cp, iscycle=iscycle), Y_, t_))
-        # def grad(P):
-        #     control_points = self.full_set(M, P, degrees, iscycle)
-        #     # grad_E = gradSumOfSquared(BezierSpline(M, control_points, iscycle=iscycle), Y, param)
-        #     grad_E = grad_(control_points, Y, param)
-        #     grad_E = indep_set(grad_E, iscycle)
-        #
-        #     return grad_E
-
-
-        problem = Problem(manifold=N, cost=cost)# riemannian_gradient=grad)
-
-        solver = SteepestDescent(max_time=maxtime, max_iterations=maxiter, min_gradient_norm=mingradnorm,
-                                 min_step_size=minstepsize, max_cost_evaluations=maxcostevals, log_verbosity=2)
-
+        # initial guess
         if P_init is None:
             P_init = self.initControlPoints(M, Y, param, degrees, iscycle)
-
         P_init = indep_set(P_init, iscycle)
 
-        opt = solver.run(problem, initial_point=P_init)
-        P_opt = full_set(M, jnp.array(opt.point), degrees, iscycle)
+        # fit spline to data
+        P = RiemannianRegression.fit(M, Y, param, P_init, degree, n_segments, iscycle, maxiter, mingradnorm)
 
-        self._spline = BezierSpline(M, P_opt, iscycle=iscycle)
-        self._unexplained_variance = opt.cost / len(Y)
+        # construct spline from ctrl. pts.
+        P = full_set(M, P, degrees, iscycle)
+        self._spline = BezierSpline(M, P, iscycle=iscycle)
+
+    @staticmethod
+    @partial(jax.jit, static_argnames=['M', 'degree', 'n_segments', 'iscycle'])
+    def fit(M: Manifold, Y: jnp.array, param: jnp.array, P_init: jnp.array, degree: int, n_segments: int, iscycle=False,
+            maxiter=100, mingradnorm=1e-6) -> jnp.array:
+        """Fit Bézier spline to data Y,param in a manifold M using gradient descent.
+
+        :param M: manifold
+        :param Y: array containing M-valued data.
+        :param param: vector with scalars between 0 and the number of intended segments corresponding to the data points
+        in Y. The integer part determines the segment to which the data point belongs.
+        :param P_init: initial guess (independent ctrl. pts. only, see #indep_set)
+        :param degree: degree of each segment of the spline. Must be > 0/2 for non-/cyclic splines.
+        :param n_segments: number of segments. Must be positive.
+        :param iscycle: boolean that determines whether a closed curve C1 spline shall be modeled.
+        :param maxiter: maximum number of iterations in steepest descent
+        :param mingradnorm: stop iteration when the norm of the gradient is lower than mingradnorm
+
+        :return P: array of independent control points of the optimal Bézier spline.
+        """
+        degrees = np.full(n_segments, degree)
+
+        # number of independent control points
+        k = int(np.sum(degrees - 1)) + (0 if iscycle else 2)
+        # search space: k-fold product of M
+        N = PowerManifold(M, k)
+
+        # Cost
+        def cost(P):
+            pts = full_set(M, P, degrees, iscycle)
+            return sumOfSquared(BezierSpline(M, pts, iscycle=iscycle), Y, param) / len(Y)
+
+        args = {'stepsize': 1., 'maxiter': maxiter, 'mingradnorm': mingradnorm}
+        return RiemannianSteepestDescent.fixedpoint(N, cost, P_init, **args)
 
     @property
-    def trend(self):
+    def trend(self) -> BezierSpline:
         """
         :return: Estimated trajectory encoding relationship between
             explanatory and manifold-valued dependent variable.
         """
         return self._spline
 
-    def unexplained_variance(self):
+    @cached_property
+    def unexplained_variance(self) -> float:
         """Variance in the data set that is not explained by the regressed Bézier spline.
         """
-        return self._unexplained_variance
+        cost = sumOfSquared(self.trend, self._Y, self._param)
+        return cost / len(self._Y)
 
     @property
-    def R2statistic(self):
+    def R2statistic(self) -> float:
         """ Computes Fletcher's generalized R2 statistic for Bézier spline regression. For the definition see
                         Fletcher, Geodesic Regression on Riemannian Manifolds (2011), Eq. 7.
 
@@ -144,10 +132,11 @@ class RiemannianRegression(object):
         # total variance
         total_var = ExponentialBarycenter.total_variance(self._M, self._Y)
 
-        return 1 - self.unexplained_variance() / total_var
+        return 1 - self.unexplained_variance / total_var
 
     @staticmethod
-    def initControlPoints(M: Manifold, Y, param, degrees, iscycle=False):
+    def initControlPoints(M: Manifold, Y: jnp.array, param: jnp.array,
+                          degrees: jnp.array, iscycle: bool = False) -> jnp.array:
         """Computes an initial choice of control points for the gradient descent steps in non-cyclic Bézier spline
         regression.
         The control points are initialized "along geodesics" near the data
@@ -155,11 +144,11 @@ class RiemannianRegression(object):
 
         :param M:  manifold
         :param Y:  array containing M-valued data.
-        :param param: vector with scalars between 0 and the number of intended segments corresponding to the data points in
-        Y. The integer part determines the segment to which the data point belongs.
-        :param degrees: vector of length L; the l-th entry is the degrees of the l-th segment of the spline. All entries must
-        be positive. For a closed spline, L > 1, degrees[0] > 2 and degrees[-1] > 2 must hold.
-        :param iscylce: boolean that determines whether a closed curve C1 spline shall be modeled.
+        :param param: vector with scalars between 0 and the number of intended segments corresponding to the data points
+        in Y. The integer part determines the segment to which the data point belongs.
+        :param degrees: vector of length L; the l-th entry is the degrees of the l-th segment of the spline. All entries
+        must be positive. For a closed spline, L > 1, degrees[0] > 2 and degrees[-1] > 2 must hold.
+        :param iscycle: boolean that determines whether a closed curve C1 spline shall be modeled.
 
         :return P: list of length L containing arrays of control points. The l-th entry is an
                array with degrees(l)+1 elements of M, that are ordered along the first dimension.
@@ -167,7 +156,7 @@ class RiemannianRegression(object):
         degrees = jnp.atleast_1d(degrees)
 
         # data, t = RiemannianRegression.segments_from_data(Y, param)
-        data, t = segments_from_data(Y, param)
+        data, _ = segments_from_data(Y, param)
 
         P = []
         for l, d in enumerate(degrees):
@@ -206,7 +195,7 @@ class RiemannianRegression(object):
         return jnp.array(P)
 
 
-def sumOfSquared(B: BezierSpline, Y, param):
+def sumOfSquared(B: BezierSpline, Y: jnp.array, param: jnp.array) -> float:
     """Computes sum of squared distances between the spline
     defined by P and data Y.
     :param B: Bézier spline
@@ -218,7 +207,7 @@ def sumOfSquared(B: BezierSpline, Y, param):
     return jnp.sum(jax.vmap(lambda y, t: B._M.metric.squared_dist(B.eval(t), y))(Y, param))
 
 
-def gradSumOfSquared(B: BezierSpline, Y, param):
+def gradSumOfSquared(B: BezierSpline, Y: jnp.array, param: jnp.array) -> jnp.array:
     """Compute the gradient of the sum of squared distances from a manifold-valued Bézier spline to time labeled data
     points.
     :param B: Bézier spline with K segments
@@ -238,7 +227,7 @@ def gradSumOfSquared(B: BezierSpline, Y, param):
     return grad_constraints(B, grad_E)
 
 
-def grad_constraints(B: BezierSpline, grad_E):
+def grad_constraints(B: BezierSpline, grad_E: jnp.array) -> jnp.array:
     """Compute the gradient of the sum of squared distances from a manifold-valued Bézier spline to time labeled data
     points.
     :param B: Bézier spline with K segments
@@ -281,14 +270,19 @@ def grad_constraints(B: BezierSpline, grad_E):
     return jax.lax.cond(B.iscycle, lambda g: do_cyclic(g), lambda g: g, grad_E)
 
 
-def segments_from_data(Y, param):
+def segments_from_data(Y: jnp.array, param: jnp.array) -> Tuple[List[jnp.array], List[jnp.array]]:
     """Divide data according to segments
 
     :param Y: array of values
-    :param param: vector with corresponding nonnegative values sorted in ascending order
+    :param param: vector with corresponding nonnegative values
     :return: List of data arrays. The l-th entry contains data belonging to the l-th segment;
     list with corresponding parameter values. Data at a knot is assigned to the lower segment.
     """
+
+    # sort data
+    ind = jnp.argsort(param)
+    param = param[ind]
+    Y = Y[ind]
 
     # get the segments the data belongs to
     def segment(t):
@@ -297,20 +291,21 @@ def segments_from_data(Y, param):
         :return: index of segment, that is, i for t in (i,i+1] (0 if t=0)
         """
         # choose correct segment
-        if t == 0:
-            ind = 0
-        elif t == jnp.round(t):
-            ind = t - 1
-            ind = ind.astype(int)
-        else:
-            ind = jnp.floor(t).astype(int)
-        return ind
+        # if t == 0:
+        #     ind = 0
+        # elif t == jnp.round(t):
+        #     ind = t - 1
+        #     ind = ind.astype(int)
+        # else:
+        #     ind = jnp.floor(t).astype(int)
+        # return ind
+        return jnp.clip(jnp.ceil(t).astype(int) - 1, 0)
 
     # get indices where the new segment begins
-    s = jnp.zeros_like(param, int)
-    for i, t in enumerate(param):
-        s = s.at[i].set(segment(t))
-
+    # s = jnp.zeros_like(param, int)
+    # for i, t in enumerate(param):
+    #     s = s.at[i].set(segment(t))
+    s = jax.vmap(segment)(param)
     _, ind, count = jnp.unique(s, return_index=True, return_counts=True)
 
     data = []

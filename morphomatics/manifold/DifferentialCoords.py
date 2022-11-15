@@ -11,6 +11,7 @@
 ################################################################################
 
 import numpy as np
+import jax
 import jax.numpy as jnp
 
 from scipy import sparse
@@ -155,8 +156,9 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
     def ref_coords(self):
         return jnp.tile(jnp.eye(3), (2*len(self.ref.f), 1)).reshape(self.point_shape)
 
-    def rand(self):
-        return self.entangle(self.SO.rand(), self.SPD.rand())
+    def rand(self, key: jax.random.KeyArray):
+        k1, k2 = jax.random.split(key)
+        return self.entangle(self.SO.rand(k1), self.SPD.rand(k2))
 
     def zerovec(self):
         """Returns the zero vector in any tangent space."""

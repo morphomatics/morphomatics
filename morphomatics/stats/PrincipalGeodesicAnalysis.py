@@ -15,7 +15,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from pymanopt.manifolds.manifold import Manifold
+from morphomatics.manifold import Manifold
 
 from . import ExponentialBarycenter as Mean
 
@@ -52,14 +52,11 @@ class PrincipalGeodesicAnalysis(object):
         ################################
 
         # map data to tangent space at mean
-        #v = [mfd.connec.log(mu, x) for x in data]
-        v = jax.vmap(jax.jit(lambda x: mfd.connec.log(mu, x)))(data)
-
-        # setup dual-covariance operator / (scaled) gram matrix
-        # C = mfd.metric.inner(mu, v, v) / N #TODO: inner() does not support lists in general -> change to (parallel) for loops
+        v = jax.vmap(jax.jit(mfd.connec.log), (None, 0))(mu, data)
 
         if dual:
-            # setup dual covariance operator / (scaled) gram matrix
+            # setup dual-covariance operator / (scaled) gram matrix
+            # C = mfd.metric.inner(mu, v, v) / N #TODO: inner() does not support lists in general -> change to (parallel) for loops
             idx = jnp.triu_indices(N)
             C = jnp.zeros((N,N))
             C = C.at[idx].set(
@@ -85,7 +82,7 @@ class PrincipalGeodesicAnalysis(object):
 
         # set variance and modes
         n = jnp.sum(vals > 1e-6)
-        e = d - n - 1 if n<d else None # n<d (at least constant vector should be in kernel)
+        e = d - n - 1 if n<d else -d-1
         variances = vals[:e:-1]
         modes = vecs[:,:e:-1].T.reshape((n,) + self.mfd.point_shape)
 

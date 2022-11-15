@@ -13,10 +13,10 @@
 import numpy as np
 from typing import Sequence
 
+import jax
 import jax.numpy as jnp
 
 from morphomatics.manifold import ShapeSpace, Metric, Connection, Sphere
-from morphomatics.manifold.util import randn_with_key
 
 class Kendall(ShapeSpace):
     """
@@ -60,12 +60,12 @@ class Kendall(ShapeSpace):
         """ :returns: Coordinates of reference shape """
         return self.ref
 
-    def rand(self):
-        p = randn_with_key(self.point_shape)
+    def rand(self, key: jax.random.KeyArray):
+        p = jax.random.normal(key, self.point_shape)
         return self.project(p)
 
-    def randvec(self, p):
-        v = randn_with_key(self.point_shape)
+    def randvec(self, p, key: jax.random.KeyArray):
+        v = jax.random.normal(key, self.point_shape)
         v = self.center(v)
         return self.horizontal(p, self._S.metric.proj(p, v))
 

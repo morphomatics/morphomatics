@@ -10,40 +10,47 @@
 #                                                                              #
 ################################################################################
 
+# postponed evaluation of annotations to circumvent cyclic dependencies (will be default behavior in Python 4.0)
+from __future__ import annotations
+# from morphomatics.manifold import Manifold
+
 import numpy as np
+import jax
 import jax.numpy as jnp
 import jax.lax as lax
+
+
+from typing import Tuple, List
 
 
 class BezierSpline:
     """Manifold-valued spline that consists of Bézier curves"""
 
-    def __init__(self, M, control_points, iscycle=False):
+    def __init__(self, M: Manifold, control_points: jnp.array, iscycle: bool = False):
         """
         :arg M: manifold in which the curve lies
         :arg control_points: array of control points of the Bézier spline, the L >= 1 segments must be sorted along the
-        first axis and all segments must have the same degree k; that is, the input must be an [L, k, M.point_shape] array
-        entry of the list belongs to the l-th segment of the spline.
+        first axis and all segments must have the same degree k; i.e., the input must be an [L, k, M.point_shape] array
         :arg iscycle: boolean indicating whether B is a closed curve
         """
         assert M is not None
 
         self._M = M
 
-        self.control_points = jnp.array(control_points)
+        self.control_points = jnp.asarray(control_points)
 
         self.iscycle = iscycle
 
-    def __str__(self):
+    def __str__(self) -> str:
         return 'Bézier spline through ' + str(self._M)
 
     @property
-    def nsegments(self):
+    def nsegments(self) -> int:
         """Returns the number of segments."""
         return len(self.control_points)
 
     @property
-    def degrees(self):
+    def degrees(self) -> jnp.array:
         """Returns the degrees of the spline segments."""
         L = len(self.control_points)
         n_seg = np.zeros(L, dtype=int)
@@ -51,15 +58,15 @@ class BezierSpline:
             n_seg[i] = np.shape(self.control_points[i])[0] - 1
         return n_seg
 
-    def length(self):
+    def length(self) -> float:
         # TODO
         return
 
-    def energy(self):
+    def energy(self) -> float:
         # TODO
         return
 
-    def tangent(self, t):
+    def tangent(self, t: float) -> jnp.array:
         """
         Compute the tangent vector at the point of the spline corresponding to t.
         """
@@ -138,7 +145,7 @@ class BezierSpline:
 
         return bezier_tangent(BezierSpline(self._M, [self.control_points[ind]]), t)
 
-    def isC1(self, eps=1e-5):
+    def isC1(self, eps: float = 1e-5) -> bool:
         """
         Check whether the spline is (approximately) continuously differentible. For this, all control points that connect
         two segments must be in the middle of their neighbours.
@@ -157,7 +164,7 @@ class BezierSpline:
 
         return True
 
-    def geoshaped(self, eps=1e-7):
+    def geoshaped(self, eps: float = 1e-7) -> bool:
         """
         Return whether the spline is a reparametrized geodesic. For this we test if all tangent vectors from the first
         control point to the other control points are parallel (within a tolerance of epsilon).
@@ -186,7 +193,7 @@ class BezierSpline:
         # all vectors were (almost) parallel
         return True
 
-    def eval(self, t: float):
+    def eval(self, t: float) -> jnp.array:
         """Evaluates the Bézier spline at time t."""
 
         # choose correct control points
@@ -195,7 +202,23 @@ class BezierSpline:
 
         return decasteljau(self._M, P, t)[0]
 
-    def adjDpB(self, t, X):
+    def DpB(self, t: float, X: jnp.array) -> jnp.array:
+        """Compute derivative of Bézier curve B(t) w.r.t. its control points applied to vector X, i.e.
+        the generalizd Jacobi field J(t).
+        :param t: time in [0, nSegments]
+        :param X: tangent vectors for each control point
+        :return: B(t), J(t)
+        """
+        # choose correct control points
+        ind, t = segmentize(t)
+        P = self.control_points[ind]
+
+        # (forward-mode) automatic differentiation of decasteljau(..)
+        f = lambda a: decasteljau(self._M, a, t)[0]
+        Bt, Jt = jax.jvp(f, (P,), (X[ind],))
+        return Bt, self._M.metric.proj(Bt, Jt)
+
+    def adjDpB(self, t: float, X: jnp.array) -> jnp.array:
         """Compute the value of the adjoint derivative of a Bézier curve B with respect to its control points applied
         to the vector X.
         :param t: scalar in [0, nSegments]
@@ -260,7 +283,8 @@ class BezierSpline:
 
         return grad
 
-def segmentize(t):
+
+def segmentize(t: float) -> Tuple[int, float]:
     """Choose the correct segment and value for the parameter t
     :param t: scalar in [0, nsegments]
     :return: index of corresponding control points in self.control_points and the adjusted value of t in [0,1]
@@ -278,19 +302,19 @@ def segmentize(t):
     return lax.cond(t == 0, startpoint, lambda s: lax.cond(t == jnp.round(t), connecting_point, inner_point, s), t)
 
 
-def decasteljau(M, P, t):
+def decasteljau(M: Manifold, P: jnp.array, t: float) -> Tuple[jnp.array, List[jnp.array]]:
     """Generalized de Casteljau algorithm
     :param M: manifold
     :param P: control points of curve beta
     :param t: scalar in [0,1]
-    :return  beta(t), (B): result of the de Casteljau algorithm with control points P, (intermediate points B in the algorithm)
+    :return  beta(t), (B): result of the de Casteljau algorithm with control points P, (intermediate points Bf in the algorithm)
     """
     # number of control points
     k = len(P)
 
     # init linearized tree of control points
     B = jnp.concatenate([jnp.asarray(P)[i:] for i in range(k)])
-    # for lower-level control points: indices of parent ones w.r.t B
+    # for lower-level control points: indices of parent ones w.r.t Bf
     offset = [(2*k*n - n*n + n)//2 for n in range(k-1)]
     idx = np.concatenate([np.arange(k-1-i)+o for i, o in enumerate(offset)])
     # compute lower-level points

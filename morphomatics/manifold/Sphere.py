@@ -16,7 +16,6 @@ import jax
 import jax.numpy as jnp
 
 from morphomatics.manifold import Manifold, Metric, Connection
-from morphomatics.manifold.util import randn_with_key
 
 class Sphere(Manifold):
     """The sphere of [... x k x m]-tensors embedded in R(n+1)
@@ -39,12 +38,12 @@ class Sphere(Manifold):
         self._metric = structure
         self._connec = structure
 
-    def rand(self):
-        p = randn_with_key(self.point_shape)
+    def rand(self, key: jax.random.KeyArray):
+        p = jax.random.normal(key, self.point_shape)
         return p / jnp.linalg.norm(p)
 
-    def randvec(self, X):
-        H = randn_with_key(self.point_shape)
+    def randvec(self, X, key: jax.random.KeyArray):
+        H = jax.random.normal(key, self.point_shape)
         return H - jnp.dot(X.reshape(-1), H.reshape(-1)) * X
 
     def zerovec(self):

@@ -124,9 +124,3 @@ def gram_schmidt(A):
         A = A.at[:, j].set(A[:, j] / jnp.linalg.norm(A[:, j]))
 
     return A
-
-
-def randn_with_key(point_shape):
-    """ Generate jax random array using numpy random key"""
-    key = jax.random.PRNGKey(np.random.randint(1 << 32))
-    return jax.random.normal(key, point_shape)
