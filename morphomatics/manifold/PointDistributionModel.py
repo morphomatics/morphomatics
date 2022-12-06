@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2021 Zuse Institute Berlin                                   #
+#   Copyright (C) 2022 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -12,6 +12,7 @@
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from ..geom import Surface
 from . import ShapeSpace, Metric, Connection
@@ -34,10 +35,6 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
         super().__init__(name, dimension, point_shape, self, self, None)
 
     @property
-    def dim(self):
-        return self.ref.v.size
-
-    @property
     def typicaldist(self):
         return self.ref.v.std()
 
@@ -46,15 +43,14 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
 
     def to_coords(self, v):
         # align
-        v = align(v, self.ref.v)
-        return v.reshape(-1)
+        return align(v, self.ref.v)
 
     def from_coords(self, c):
-        return c.reshape(self.ref.v.shape)
+        return np.asarray(c)
 
     @property
     def ref_coords(self):
-        return self.ref.v.copy().reshape(-1)
+        return self.ref.v.copy()
 
     def dist(self, p, q):
         return jnp.sqrt(self.squared_dist(p, q))
@@ -68,7 +64,7 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
         :arg Y: (list of) tangent vector(s) at p
         :returns: inner product at p between P_G and H, i.e. <X,Y>_p
         """
-        return X @ Y.T
+        return X.reshape(-1) @ Y.reshape(-1)
 
     def proj(self, p, X):
         return X
