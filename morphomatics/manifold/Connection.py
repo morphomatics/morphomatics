@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -28,6 +28,12 @@ class Connection(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def exp(self, p, X):
         """Exponential map of the connection at p applied to the tangent vector X.
+        """
+
+    @abc.abstractmethod
+    def retr(self, p, X):
+        """Computes a retraction mapping a vector X in the tangent space at
+        p to the manifold.
         """
 
     @abc.abstractmethod
@@ -70,6 +76,7 @@ class Connection(metaclass=abc.ABCMeta):
                                                       args),
                             (p, q, t, X))
 
+    @abc.abstractmethod
     def eval_jacobiField(self, p, q, t, X):
         """
         Evaluates a Jacobi field (with boundary conditions gam(0) = X, gam(1) = 0) along the geodesic gam from p to q.
@@ -79,30 +86,6 @@ class Connection(metaclass=abc.ABCMeta):
         :param X: tangent vector at p
         :return: [b, J] with J and b being the Jacobi field at t and the corresponding basepoint
         """
-        ### using (forward-mode) automatic differentiation of geopoint(..)
-        f = lambda O: self.geopoint(O, q, t)
-        return jax.jvp(f, (p,), (X,))
-
-    def adjJacobi(self, p, q, t, X):
-        """Evaluates an adjoint Jacobi field for the geodesic gam from p to q at p.
-        :param p: element of the Riemannian manifold
-        :param q: element of the Riemannian manifold
-        :param t: scalar in [0,1]
-        :param X: tangent vector at gam(t)
-        :return: tangent vector at p
-        """
-        return jax.lax.cond(t == 1,
-                            lambda args: jnp.zeros_like(args[3]),
-                            lambda args: jax.lax.cond(t == 0,
-                                                      lambda args2: args2[3],
-                                                      lambda args2: self.eval_adjJacobi(*args2),
-                                                      args),
-                            (p, q, t, X))
-
-    def eval_adjJacobi(self, p, q, t, X):
-        ### using (reverse-mode) automatic differentiation of geopoint(..)
-        f = lambda O: self.geopoint(O, q, t)
-        return jax.vjp(f, p)[1](X)[0]
 
     def dxgeo(self, p, q, t, X):
         """Evaluates the differential of the geodesic gam from p to q w.r.t. the starting point p at X,
@@ -118,16 +101,13 @@ class Connection(metaclass=abc.ABCMeta):
 
         return self.jacobiField(q, p, 1 - t, X)
 
-    def adjDxgeo(self, p, q, t, X):
-        """Evaluates the adjoint of the differential of the geodesic gamma from p to q w.r.t. the starting point p at X,
-        i.e, the adjoint  of d_p gamma(t; ., q) applied to X, which is an element of the tangent space at p.
-        """
 
-        return self.adjJacobi(p, q, t, X)
+def _eval_jacobi_embed(C: Connection, p, q, t, X):
+    """ Implementation of eval_jacobi for isometrically embedded manifolds using (forward-mode) automatic
+    differentiation of geopoint(..).
 
-    def adjDygeo(self, p, q, t, X):
-        """Evaluates the adjoint of the differential of the geodesic gamma from p to q w.r.t. the endpoint q at X,
-        i.e, the adjoint  of d_q gamma(t; p, .) applied to X, which is en element of the tangent space at q.
-        """
+    ATTENTION: the result must be projected to the tangent space!
+    """
+    f = lambda O: C.geopoint(O, q, t)
 
-        return self.adjJacobi(q, p, 1 - t, X)
+    return jax.jvp(f, (p,), (X,))

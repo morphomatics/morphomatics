@@ -15,8 +15,8 @@ from setuptools import setup
 setup(
   name = 'morphomatics',
   packages = ['morphomatics', 'morphomatics.geom', 'morphomatics.manifold', 'morphomatics.stats', 'morphomatics.opt'],
-  version = '2.1.1',
-  version_name = 'Accelerated Augustus',
+  version = '3.0',
+  version_name = 'Lucid Livia',
   license='ZIB Academic License',
   description = 'Geometric morphometrics in non-Euclidean shape spaces',
   author = 'Christoph von Tycowicz et al.',
@@ -38,5 +38,6 @@ setup(
     'Programming Language :: Python :: 3.8',
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11'
   ],
 )

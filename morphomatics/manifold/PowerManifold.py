@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -13,7 +13,7 @@
 import jax
 import jax.numpy as jnp
 
-from morphomatics.manifold import Manifold, Metric, Connection, LieGroup
+from morphomatics.manifold import Manifold, Metric, LieGroup
 
 
 class PowerManifold(Manifold):
@@ -22,7 +22,7 @@ class PowerManifold(Manifold):
     def __init__(self, M: Manifold, k: int, structure: str = 'Product'):
         point_shape = tuple([k, *M.point_shape])
         name = f'Product of {k} copies of ' + M.__str__() + '.'
-        dimension = M.dim ** k
+        dimension = M.dim * k
         super().__init__(name, dimension, point_shape)
         self._atom_manifold = M
         self._k = k
@@ -48,10 +48,9 @@ class PowerManifold(Manifold):
         Instantiate the power manifold with product structure.
         """
         structure = PowerManifold.ProductStructure(self)
-        self._metric = structure
-        self._connec = structure
-        # test whether the atom manifold has a Lie group structure
-        self._group = structure if isinstance(self.atom_manifold.connec, LieGroup) else None
+        self._metric = structure if self.atom_manifold.metric is not None else None
+        self._connec = structure if self.atom_manifold.connec is not None else None
+        self._group = structure if self.atom_manifold.group is not None else None
 
     def rand(self, key: jax.random.KeyArray) -> jnp.array:
         """ Random element of the power manifold
@@ -75,7 +74,17 @@ class PowerManifold(Manifold):
         """
         return jnp.zeros(self.point_shape)
 
-    class ProductStructure(Metric, Connection, LieGroup):
+    def proj(self, p, z):
+        """Project ambient vector onto the power manifold
+
+        :param p: element of M^k
+        :param z: ambient vector
+        :return: projection of z to the tangent space at p
+        """
+
+        return jax.vmap(self.atom_manifold.proj)(p, z)
+
+    class ProductStructure(Metric, LieGroup):
         """ Product structure, i.e., product metric, product connection, and, if applicable, product Lie group structure
         on M^k
         """
@@ -127,15 +136,37 @@ class PowerManifold(Manifold):
 
             return jnp.sum(jax.vmap(lambda _p, _q: self._M.metric.squared_dist(_p, _q))(p, q))
 
-        def proj(self, p, z):
-            """Project ambient vector onto the power manifold
+        def flat(self, p: jnp.array, v: jnp.array) -> jnp.array:
+            """Lower vector v at p with the metric
 
             :param p: element of M^k
-            :param z: ambient vector
-            :return: projection of z to the tangent space at p
+            :param v: tangent vector at p
+            :return: covector at p
             """
 
-            return jax.vmap(self._M.metric.proj)(p, z)
+            return jax.vmap(self._M.metric.flat)(p, v)
+
+        def sharp(self, p: jnp.array, dv: jnp.array) -> jnp.array:
+            """Raise covector dv at p with the metric
+
+            :param p: element of M^k
+            :param dv: covector at p
+            :return: tangent vector at p
+            """
+
+            return jax.vmap(self._M.metric.sharp)(p, dv)
+
+        def eval_adjJacobi(self, p: jnp.array, q: jnp.array, t: float, X: jnp.array) -> jnp.array:
+            """
+            Evaluates an adjoint Jacobi field along the geodesic gam from p to q. X is a vector at gam(t)
+
+            :param p: element of M^k
+            :param q: element of M^k
+            :param t: scalar in [0,1]
+            :param X: tangent vector at gam(t)
+            :return: tangent vector at p
+            """
+            return jax.vmap(self._M.metric.eval_adjJacobi)(p, q, t, X)
 
         def egrad2rgrad(self, p, z):
             """Transform the Euclidean gradient of a function into the corresponding Riemannian gradient, i.e.,
@@ -186,7 +217,7 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self._M.connec.geopoint, (0, 0, None))(p, q, t)
 
-        def transp(self, p, q, v):
+        def transp(self, p: jnp.array, q: jnp.array, v: jnp.array) -> jnp.array:
             """Parallel transport map
 
             :param p: element of M^k
@@ -205,7 +236,7 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self._M.connec.pairmean)(p, q)
 
-        def curvature_tensor(self, p, v, w, x):
+        def curvature_tensor(self, p: jnp.array, v: jnp.array, w: jnp.array, x: jnp.array) -> jnp.array:
             """Curvature tensor
 
             :param p: element of M^k
@@ -215,6 +246,19 @@ class PowerManifold(Manifold):
             :return: tangent vector at p that is the value R(v,w)x of the curvature tensor
             """
             return jax.vmap(self._M.connec.curvature_tensor)(p, v, w, x)
+
+        def eval_jacobiField(self, p: jnp.array, q: jnp.array, t: float, X: jnp.array) -> jnp.array:
+            """
+            Evaluates a Jacobi field (with boundary conditions gam(0) = X, gam(1) = 0) along the geodesic gam from p to
+            q.
+
+            :param p: element of M^k
+            :param q: element of M^k
+            :param t: scalar in [0,1]
+            :param X: tangent vector at p
+            :return: tangent vector at gam(t)
+            """
+            return jax.vmap(self._M.connec.eval_jacobiField)(p, q, t, X)
 
         #### group interface ####
 

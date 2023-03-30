@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -24,11 +24,11 @@ except:
 from ..geom import Surface
 from . import SO3
 from . import SPD
-from . import ShapeSpace, Metric, Connection
+from . import ShapeSpace, Metric
 from .util import align
 
 
-class DifferentialCoords(ShapeSpace, Metric, Connection):
+class DifferentialCoords(ShapeSpace, Metric):
     """
     Shape space based on differential coordinates.
 
@@ -79,8 +79,7 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         # self.mass = sparse.diags(diag.T.flatten(), 0)
         # -> single weight for each triangle -> use broadcasting instead of sparse matrix product
         mass = np.outer(self.commensuration_weights, self.ref.face_areas)
-        self.mass = jnp.array(mass).reshape(mass.shape+(1,1))
-
+        self.mass = jnp.array(mass).reshape(mass.shape+(1, 1))
 
     def disentangle(self, c):
         """
@@ -197,6 +196,19 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
 
         return Pi
 
+    def proj(self, X, A):
+        """orthogonal (with respect to the euclidean inner product) projection of ambient
+        vector (i.e. (2,k,3,3) array) onto the tangentspace at X"""
+        # disentangle coords. into rotations and stretches
+        R, U = self.disentangle(X)
+        r, u = self.disentangle(A)
+
+        # project in each component
+        r = self.SO.proj(R, r)
+        u = self.SPD.proj(U, u)
+
+        return self.entangle(r, u)
+
     ##########################################################
     # Implement Metric interface
     ##########################################################
@@ -225,18 +237,11 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         # return P_G @ self.mass @ np.asanyarray(H).T
         return (self.mass * H).reshape(-1) @ G.reshape(-1)
 
-    def proj(self, X, A):
-        """orthogonal (with respect to the euclidean inner product) projection of ambient
-        vector (i.e. (2,k,3,3) array) onto the tangentspace at X"""
-        # disentangle coords. into rotations and stretches
-        R, U = self.disentangle(X)
-        r, u = self.disentangle(A)
+    def flat(self, X, G):
+        raise NotImplementedError('This function has not been implemented yet.')
 
-        # project in each component
-        r = self.SO.metric.proj(R, r)
-        u = self.SPD.metric.proj(U, u)
-
-        return self.entangle(r,u)
+    def sharp(self, G, dG):
+        raise NotImplementedError('This function has not been implemented yet.')
 
     def egrad2rgrad(self, X, D):
         """converts Euclidean gradient (i.e. (2,k,3,3) array))
@@ -260,7 +265,7 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         a point p along a tangent vector X to the Riemannian Hessian
         along X on the manifold.
         """
-        return
+        raise NotImplementedError('This function has not been implemented yet.')
 
     ##########################################################
     # Implement Connection interface
@@ -286,8 +291,11 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
             R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
         is used.
         """
-        # TODO: inherit from SO and SPD
-        raise NotImplementedError('This function has not been implemented yet.')
+        R, U = self.disentangle(p)
+        r_x, u_x = self.disentangle(X)
+        r_y, u_y = self.disentangle(Y)
+        r_z, u_z = self.disentangle(Z)
+        return self.entangle(self.SO.connec.curvature_tensor(R, r_x, r_y, r_z), self.SPD.connec.curvature_tensor(U, u_x, u_y, u_z))
 
     def transp(self, X, Y, G):
         """
@@ -302,7 +310,7 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         rx, ux = self.disentangle(G)
         return self.entangle(self.SO.connec.transp(Rx, Ry, rx), self.SPD.connec.transp(Ux, Uy, ux))
 
-    def jacobiField(self, p, q, t, X):
+    def eval_jacobiField(self, p, q, t, X):
         """Evaluates a Jacobi field (with boundary conditions gam(0) = X, gam(1) = 0) along the geodesic gam from p to q.
         :param p: element of the Riemannian manifold
         :param q: element of the Riemannian manifold
@@ -315,21 +323,6 @@ class DifferentialCoords(ShapeSpace, Metric, Connection):
         Rq, Uq = self.disentangle(q)
         r, u = self.disentangle(X)
         return self.entangle(self.SO.connec.jacobiField(Rp, Rq, t, r), self.SPD.connec.jacobiField(Up, Uq, t, u))
-
-    def adjJacobi(self, X, Y, t, G):
-        """
-        Evaluates an adjoint Jacobi field along the geodesic gam from X to Z at X.
-        :param X: element of the space of differential coordinates
-        :param Y: element of the space of differential coordinates
-        :param t: scalar in [0,1]
-        :param G: tangent vector at gam(t)
-        :return: tangent vector at X
-        """
-        # disentangle coords. into rotations and stretches
-        Rx, Ux = self.disentangle(X)
-        Ry, Uy = self.disentangle(Y)
-        r, u = self.disentangle(G)
-        return self.entangle(self.SO.connec.adjJacobi(Rx, Ry, t, r), self.SPD.connec.adjJacobi(Ux, Uy, t, u))
 
     def coords(self, X):
         """Coordinate map for the tangent space at the identity"""

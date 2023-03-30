@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -21,7 +21,7 @@ import jax
 import jax.numpy as jnp
 
 from morphomatics.geom import BezierSpline
-from morphomatics.manifold import Manifold, Metric, Connection, PowerManifold
+from morphomatics.manifold import Manifold, Metric, PowerManifold
 from morphomatics.opt import RiemannianSteepestDescent, RiemannianNewtonRaphson
 from morphomatics.stats import ExponentialBarycenter
 from morphomatics.stats import RiemannianRegression
@@ -155,9 +155,11 @@ class Bezierfold(Manifold):
         pts = full_set(self.M, pts, self.degrees, self.iscycle)
         return BezierSpline(self.M, pts, self.iscycle)
 
+    def proj(self, X, H):
+        return H
 
     ############################## Functional-based structure ##############################
-    class FunctionalBasedStructure(Metric, Connection):
+    class FunctionalBasedStructure(Metric):
         """
         Functional-based metric structure
         """
@@ -188,7 +190,7 @@ class Bezierfold(Manifold):
                 # fwd-diff. of full_set
                 q_full, V_full = jax.jvp(f, (q,), (V,))
                 # proj. to tangent space
-                vproj = jax.vmap(jax.vmap(M.metric.proj))
+                vproj = jax.vmap(jax.vmap(M.proj))
                 return q_full, vproj(q_full, V_full)
 
             # map p, X, Y to all control points
@@ -235,8 +237,8 @@ class Bezierfold(Manifold):
             """
             Compute c such that [a,b,c] is a discrete 2-geodesic.
             :param Bf: Bezierfold a ang b live in
-            :param a: Bézier spline in manifold M (i.e. independend control points thereof)
-            :param b: Bézier spline in manifold M (i.e. independend control points thereof)
+            :param a: Bézier spline in manifold M (i.e. independent control points thereof)
+            :param b: Bézier spline in manifold M (i.e. independent control points thereof)
             :return: c
             """
 
@@ -259,12 +261,10 @@ class Bezierfold(Manifold):
 
             # solve F(x) = 0
             N = PowerManifold(Bf.M, Bf.K+1)
-            return RiemannianNewtonRaphson.solve(N, F, c, stepsize=.1, maxiter=Bf.dim)
+            return RiemannianNewtonRaphson.solve(N, F, c, stepsize=.1, maxiter=min(Bf.dim, 1000))
 
         def exp(self, p: jnp.array, X: jnp.array) -> jnp.array:
             n = self._Bf.nsteps
-            # times for sampling splines
-            t = jnp.linspace(0., self._Bf.nsegments, self._Bf.nsamples)
 
             def body(carry, _):
                 a, b = carry
@@ -324,7 +324,7 @@ class Bezierfold(Manifold):
             return H
 
         @staticmethod
-        @partial(jax.jit, static_argnames=['Bf'])
+        #@partial(jax.jit, static_argnames=['Bf'])
         def mean(Bf, B, maxiter: int = 500, minchange: float = 1e-5):
             """Discrete mean of a set of Bézier splines
 
@@ -364,12 +364,14 @@ class Bezierfold(Manifold):
                 # update x via regression
                 Y = jax.vmap(sample, (None, 0, None))(Bf, F[:, 1], t)
                 opt = RiemannianSteepestDescent.fixedpoint(N, lambda a: ssd(a, Y, t), x)
-                change = jnp.linalg.norm(opt - x, np.inf)
+                change = jnp.abs(opt - x).max()
+                #change = jnp.linalg.norm((opt - x).ravel(), np.inf)
 
                 # update legs of 'polygonal spider'
                 F = F.at[:, 0].set(opt)
                 F, d = jax.vmap(curve_shortening_step, (None, 0))(Bf, F)
-                change = jnp.array([change, jnp.linalg.norm(d, np.inf)]).max()
+                change = jnp.array([change, jnp.abs(d).max()]).max()
+                #change = jnp.array([change, jnp.linalg.norm(d.ravel(), np.inf)]).max()
 
                 jax.debug.print("{}: {}", i, change)
                 return opt, F, change, i + 1
@@ -382,7 +384,6 @@ class Bezierfold(Manifold):
             mu, F_mu, *_ = jax.lax.while_loop(cond, body, (init, F_init, 1., 0))
 
             return mu, F_mu
-
 
         def gram(self, B_mean: jnp.array, F: jnp.array):
             """Approximates the Gram matrix for a curve data set.
@@ -404,10 +405,12 @@ class Bezierfold(Manifold):
 
             return G
 
-        def proj(self, X, H):
-            return H
-
-        egrad2rgrad = proj
+        def egrad2rgrad(self, p: jnp.array, X: jnp.array) -> jnp.array:
+            """
+            :param p: Bézier spline in manifold M (i.e. independent control points thereof)
+            :param X: tangent vector (i.e. tangent vectors at the independent control points)
+            """
+            return jax.vmap(self._Bf.M.metric.egrad2rgrad)(p, X)
 
         ### not imlemented ###
 
@@ -416,7 +419,7 @@ class Bezierfold(Manifold):
             a point p along a tangent vector X to the Riemannian Hessian
             along X on the manifold.
             """
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def retr(self, R, X):
             return self.exp(R, X)
@@ -427,10 +430,16 @@ class Bezierfold(Manifold):
         def transp(self, R, Q, X):
             raise NotImplementedError('This function has not been implemented yet.')
 
-        def jacobiField(self, R, Q, t, X):
+        def eval_jacobiField(self, R, Q, t, X):
             raise NotImplementedError('This function has not been implemented yet.')
 
-        def adjJacobi(self, R, Q, t, X):
+        def eval_adjJacobi(self, R, Q, t, X):
+            raise NotImplementedError('This function has not been implemented yet.')
+
+        def flat(self, p, X):
+            raise NotImplementedError('This function has not been implemented yet.')
+
+        def sharp(self, p, dX):
             raise NotImplementedError('This function has not been implemented yet.')
 
 
@@ -461,9 +470,10 @@ def curve_shortening_step(Bf: Bezierfold, x: jnp.array) -> Tuple[jnp.array, floa
         post = sample(Bf, post, t)
         # update (fit cur to pre & post)
         Y = jnp.concatenate([pre, post])
-        opt = RiemannianRegression.fit(Bf.M, Y, tt, cur, deg, nseg)
+        opt = RiemannianRegression.fit(Bf.M, Y, tt, cur, deg, nseg, maxiter=1, iscycle=Bf.iscycle)
         # update inf-norm
-        d = jnp.array([d, jnp.linalg.norm(opt - cur, np.inf)]).max()
+        d = jnp.array([d, jnp.abs(opt - cur).max()]).max()
+        #d = jnp.array([d, jnp.linalg.norm(jnp.ravel(opt - cur), ord=jnp.inf)]).max()
         return (opt, d), opt
 
     # stack each node with its successor

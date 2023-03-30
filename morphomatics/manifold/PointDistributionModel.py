@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -15,11 +15,11 @@ import jax.numpy as jnp
 import numpy as np
 
 from ..geom import Surface
-from . import ShapeSpace, Metric, Connection
+from . import ShapeSpace, Metric
 from .util import align
 
 
-class PointDistributionModel(ShapeSpace, Metric, Connection):
+class PointDistributionModel(ShapeSpace, Metric):
     """ Linear manifold space model. """
 
     def __init__(self, reference: Surface):
@@ -66,6 +66,12 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
         """
         return X.reshape(-1) @ Y.reshape(-1)
 
+    def flat(self, p, X):
+        return X
+
+    def sharp(self, p, dX):
+        return dX
+
     def proj(self, p, X):
         return X
 
@@ -96,7 +102,7 @@ class PointDistributionModel(ShapeSpace, Metric, Connection):
     def transp(self, p, q, X):
         return X
 
-    def jacobiField(self, p, q, t, X):
+    def eval_jacobiField(self, p, q, t, X):
         """Evaluates a Jacobi field (with boundary conditions gam(0) = X, gam(1) = 0) along the geodesic gam from p to q.
         :param p: point
         :param q: point

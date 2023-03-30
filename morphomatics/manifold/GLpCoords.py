@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -129,6 +129,9 @@ class GLpCoords(ShapeSpace):
         """Zero tangent vector in any tangent space.
         """
         return self.GLp.zerovec()
+
+    def proj(self, p, X):
+        return X
 
     def geopoint(self, A, B, t):
         return self.GLp.connec.geopoint(A, B, t)

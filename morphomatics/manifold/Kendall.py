@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -16,7 +16,8 @@ from typing import Sequence
 import jax
 import jax.numpy as jnp
 
-from morphomatics.manifold import ShapeSpace, Metric, Connection, Sphere
+from morphomatics.manifold import ShapeSpace, Metric, Sphere
+
 
 class Kendall(ShapeSpace):
     """
@@ -67,7 +68,7 @@ class Kendall(ShapeSpace):
     def randvec(self, p, key: jax.random.KeyArray):
         v = jax.random.normal(key, self.point_shape)
         v = self.center(v)
-        return self.horizontal(p, self._S.metric.proj(p, v))
+        return self.horizontal(p, self._S.proj(p, v))
 
     def zerovec(self):
         return jnp.zeros(self.point_shape)
@@ -105,6 +106,12 @@ class Kendall(ShapeSpace):
         x = Kendall.center(x)
         return x / jnp.linalg.norm(x)
 
+    def proj(self, p, X):
+        """ Project a vector X from the ambient Euclidean space onto the tangent space at p. """
+        X = Kendall.center(X)
+        # TODO: think about naming convention.
+        return Kendall.horizontal(p, self._S.proj(p, X))
+
     @staticmethod
     def vertical(p, X):
         """
@@ -135,7 +142,7 @@ class Kendall(ShapeSpace):
         self._metric = structure
         self._connec = structure
 
-    class CanonicalStructure(Metric, Connection):
+    class CanonicalStructure(Metric):
         """
         The Riemannian metric used is the induced metric from the embedding space (R^nxn)^k, i.e., this manifold is a
         Riemannian submanifold of (R^3x3)^k endowed with the usual trace inner product.
@@ -161,12 +168,16 @@ class Kendall(ShapeSpace):
         def norm(self, p, X):
             return self._S.metric.norm(p, X)
 
-        def proj(self, p, X):
-            """ Project a vector X from the ambient Euclidean space onto the tangent space at p. """
-            X = Kendall.center(X)
-            return Kendall.horizontal(p, self._S.metric.proj(p, X))
+        def flat(self, p, X):
+            """Lower vector X at p with the metric"""
+            raise NotImplementedError('This function has not been implemented yet.')
 
-        egrad2rgrad = proj
+        def sharp(self, p, dX):
+            """Raise covector dX at p with the metric"""
+            raise NotImplementedError('This function has not been implemented yet.')
+
+        def egrad2rgrad(self, p, X):
+            return self._M.proj
 
         def ehess2rhess(self, p, G, H, X):
             """ Convert the Euclidean gradient P_G and Hessian H of a function at
@@ -212,7 +223,7 @@ class Kendall(ShapeSpace):
             return self._S.metric.squared_dist(p, q)
 
         def eval_jacobiField(self, p, q, t, X):
-            return self.proj(*super().eval_jacobiField(p, q, t, X))
+            # return self.proj(*super().eval_jacobiField(p, q, t, X))
 
             # q = Kendall.wellpos(p, q)
             # phi = self._S.metric.dist(p, q)
@@ -226,5 +237,9 @@ class Kendall(ShapeSpace):
             # # TODO: Xtan not jet at gamTS
             # return gamTS, (np.sin((1 - t) * phi) / np.sin(phi)) * Kendall.horizontal(gamTS, Xorth) + (1 - t) * Xtan
 
+            raise NotImplementedError('This function has not been implemented yet.')
+
         def eval_adjJacobi(self, p, q, t, X):
-            return self.proj(p, super().eval_adjJacobi(p, q, t, X))
+            # return self.proj(p, super().eval_adjJacobi(p, q, t, X))
+
+            raise NotImplementedError('This function has not been implemented yet.')

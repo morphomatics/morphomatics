@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -216,7 +216,7 @@ class BezierSpline:
         # (forward-mode) automatic differentiation of decasteljau(..)
         f = lambda a: decasteljau(self._M, a, t)[0]
         Bt, Jt = jax.jvp(f, (P,), (X[ind],))
-        return Bt, self._M.metric.proj(Bt, Jt)
+        return Bt, self._M.proj(Bt, Jt)
 
     def adjDpB(self, t: float, X: jnp.array) -> jnp.array:
         """Compute the value of the adjoint derivative of a Bézier curve B with respect to its control points applied

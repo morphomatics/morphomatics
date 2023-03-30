@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -22,6 +22,9 @@ from .SO3 import SO3
 from .SE3 import SE3
 from .SPD import SPD
 from .Sphere import Sphere
+from .HyperbolicSpace import HyperbolicSpace
+from .Euclidean import Euclidean
+from .TangentBundle import TangentBundle
 from. PowerManifold import PowerManifold
 
 # PyManopt Wrapper for manifolds
@@ -37,3 +40,4 @@ from .Kendall import Kendall
 
 # Space of shape trajectories
 from .Bezierfold import Bezierfold
+from .CubicBezierfold import CubicBezierfold

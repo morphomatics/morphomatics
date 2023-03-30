@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -15,8 +15,9 @@ import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import expm_frechet
 
-from morphomatics.manifold import Manifold, Metric, Connection, LieGroup
+from morphomatics.manifold import Manifold, Metric, LieGroup
 from morphomatics.manifold.util import multisym
+
 
 class SPD(Manifold):
     """Returns the product manifold Sym+(d)^k, i.e., a product of k dxd symmetric positive matrices (SPD).
@@ -51,6 +52,27 @@ class SPD(Manifold):
         if structure:
             getattr(self, f'init{structure}Structure')()
 
+    def randsym(self, key: jax.random.KeyArray):
+        S = jax.random.normal(key, self.point_shape)
+        return multisym(S)
+
+    def rand(self, key: jax.random.KeyArray):
+        return self.group.exp(self.randsym(key))
+
+    def randvec(self, X, key: jax.random.KeyArray):
+        U = self.randsym(key)
+        nrmU = jnp.sqrt(jnp.tensordot(U, U, axes=U.ndim))
+        return U / nrmU
+
+    def zerovec(self):
+        return jnp.zeros(self.point_shape)
+
+    def proj(self, S, H):
+        """orthogonal (with respect to the Euclidean inner product) projection of ambient
+        vector ((k,3,3) array) onto the tangent space at S"""
+        # dright_inv(S,multisym(H)) reduces to dlog(S, ...)
+        return dlog(S, multisym(H))
+
     def initLogEuclideanStructure(self):
         """
         Instantiate SPD(d)^k with log-Euclidean structure.
@@ -60,7 +82,7 @@ class SPD(Manifold):
         self._connec = structure
         self._group = structure
 
-    class LogEuclideanStructure(Metric, Connection, LieGroup):
+    class LogEuclideanStructure(Metric, LieGroup):
         """
         The Riemannian metric used is the induced metric from the embedding space (R^nxn)^k, i.e., this manifold is a
         Riemannian submanifold of (R^3x3)^k endowed with the usual trace inner product but featuring the log-Euclidean
@@ -102,16 +124,10 @@ class SPD(Manifold):
             """element-wise norm"""
             return jnp.sqrt(self.eleminner(S, X, X))
 
-        def proj(self, S, H):
-            """orthogonal (with respect to the Euclidean inner product) projection of ambient
-            vector ((k,3,3) array) onto the tangent space at S"""
-            # dright_inv(S,multisym(H)) reduces to dlog(S, ...)
-            return dlog(S, multisym(H))
-
         def egrad2rgrad(self, S, D):
             # adjoint of right-translation by S * inverse metric at S * proj of D to tangent space at S
             # first two terms simplify to transpose of Dexp at log(S)
-            return dexp(log_mat(S), multisym(D)) # Dexp^T = Dexp for sym. matrices
+            return dexp(log_mat(S), multisym(D))  # Dexp^T = Dexp for sym. matrices
 
         def ehess2rhess(self, p, G, H, X):
             """Converts the Euclidean gradient P_G and Hessian H of a function at
@@ -179,21 +195,25 @@ class SPD(Manifold):
             return self.norm(S, self.log(S, T))
 
         def squared_dist(self, S, T):
-            """Distance function in Sym+(d)^k"""
-            d = self.log(S, T)
-            return self.inner(S, d, d)
-
-        def squared_dist(self, S, T):
             """Squared distance function in Sym+(d)^k"""
             d = self.log(S, T)
             return self.inner(S, d, d)
+
+        def flat(self, S, X):
+            """Lower vector X at S with the metric"""
+            raise NotImplementedError('This function has not been implemented yet.')
+
+        def sharp(self, S, dX):
+            """Raise covector dX at S with the metric"""
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def eval_jacobiField(self, S, T, t, X):
             U = self.geopoint(S, T, t)
             return U, (1 - t) * self.transp(S, U, X)
 
         def eval_adjJacobi(self, S, T, t, X):
-            return (1 - t) * self.transp(self.geopoint(S, T, t), S, X)
+            U = self.geopoint(S, T, t)
+            return (1 - t) * self.transp(U, S, X)
 
         def lefttrans(self, S, X):
             """Left-translation of X by R"""
@@ -271,20 +291,6 @@ class SPD(Manifold):
 
         return self.connec.exp(X, d * v)
 
-    def randsym(self, key: jax.random.KeyArray):
-        S = jax.random.normal(key, self.point_shape)
-        return multisym(S)
-
-    def rand(self, key: jax.random.KeyArray):
-        return self.group.exp(self.randsym(key))
-
-    def randvec(self, X, key: jax.random.KeyArray):
-        U = self.randsym(key)
-        nrmU = jnp.sqrt(jnp.tensordot(U, U, axes=U.ndim))
-        return U / nrmU
-
-    def zerovec(self):
-        return jnp.zeros(self.point_shape)
 
 def logm(S):
     # Matrix logarithm (w/ projection to SPD cone)
@@ -292,17 +298,21 @@ def logm(S):
     vals = jnp.log(jnp.clip(vals, 1e-10, None))
     return jnp.einsum('...ij,...j,...kj', vecs, vals, vecs)
 
+
 def expm(X):
     vals, vecs = jnp.linalg.eigh(X)
     return jnp.einsum('...ij,...j,...kj', vecs, jnp.exp(vals), vecs)
+
 
 @jax.custom_jvp
 def log_mat(U):
     return logm(U)
 
+
 @jax.custom_jvp
 def exp_mat(U):
     return expm(U)
+
 
 @log_mat.defjvp
 def log_mat_jvp(U, X):
@@ -325,6 +335,7 @@ def log_mat_jvp(U, X):
 
     return primal_out, tangent_out
 
+
 @exp_mat.defjvp
 def exp_mat_jvp(U, X):
     d = U[0].shape[-1]
@@ -345,12 +356,14 @@ def exp_mat_jvp(U, X):
 
     return primal_out, tangent_out
 
+
 def dexp(X, G):
     """Evaluate the derivative of the matrix exponential at
     X in direction P_G.
     """
     dexpm = lambda X_, G_: expm_frechet(X_, G_, compute_expm=False)
     return jax.vmap(dexpm)(X, G)
+
 
 def dlog(X, G):
     """Evaluate the derivative of the matrix logarithm at

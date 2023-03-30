@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -15,7 +15,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from morphomatics.manifold import Manifold, Metric, Connection, LieGroup
+from morphomatics.manifold import Manifold, Metric, LieGroup
 from morphomatics.manifold.util import multiskew, vectime3d
 
 I = np.eye(3)
@@ -79,7 +79,12 @@ class SO3(Manifold):
     def zerovec(self):
         return jnp.zeros(self.point_shape)
 
-    class CanonicalStructure(Metric, Connection, LieGroup):
+    def proj(self, X, H):
+        """orthogonal (with respect to the euclidean inner product) projection of ambient
+        vector ((k,3,3) array) onto the tangentspace at X"""
+        return multiskew(jnp.einsum('...ij,...kj', H, X))
+
+    class CanonicalStructure(Metric, LieGroup):
         """
         The Riemannian metric used is the induced metric from the embedding space (R^nxn)^k, i.e., this manifold is a
         Riemannian submanifold of (R^3x3)^k endowed with the usual trace inner product.
@@ -106,22 +111,25 @@ class SO3(Manifold):
             """norm from product metric"""
             return jnp.sqrt(self.inner(R, X, X))
 
-        def proj(self, X, H):
-            """orthogonal (with respect to the euclidean inner product) projection of ambient
-            vector ((k,3,3) array) onto the tangentspace at X"""
-            return multiskew(self.dright_inv(X, H))
+        def flat(self, R, X):
+            """Lower vector X at R with the metric"""
+            return X
 
-        egrad2rgrad = proj
+        def sharp(self, R, dX):
+            """Raise covector dX at R with the metric"""
+            return dX
+
+        def egrad2rgrad(self, R, X):
+            return self._M.proj(R, X)
 
         def ehess2rhess(self, p, G, H, X):
             """Converts the Euclidean gradient P_G and Hessian H of a function at
             a point p along a tangent vector X to the Riemannian Hessian
             along X on the manifold.
             """
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def retr(self, R, X):
-            # TODO
             return self.exp(R, X)
 
         def exp(self, *argv):

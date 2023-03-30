@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -14,6 +14,7 @@ import abc
 import jax
 
 from morphomatics.manifold import Metric, Connection, LieGroup
+
 
 class Manifold(metaclass=abc.ABCMeta):
     """
@@ -78,6 +79,12 @@ class Manifold(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def zerovec(self):
         """Returns the zero vector in any tangent space."""
+
+    @abc.abstractmethod
+    def proj(self, p, X):
+        """Projects a vector X in the ambient space on the tangent space at
+        p.
+        """
 
     def projToGeodesic(self, X, Y, P, max_iter=10):
         '''

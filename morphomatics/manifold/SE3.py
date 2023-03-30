@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -73,6 +73,9 @@ class SE3(Manifold):
 
     def zerovec(self):
         return jnp.zeros(self.point_shape)
+
+    def proj(self, P, X):
+        raise NotImplementedError('This function has not been implemented yet.')
 
     class AffineGroupStructure(Connection, LieGroup):
         """
@@ -190,6 +193,10 @@ class SE3(Manifold):
         def pairmean(self, P, S):
             return self.exp(P, 0.5 * self.log(P, S))
 
+        def eval_jacobiField(self, P, S, t, X):
+            raise NotImplementedError('This function has not been implemented yet.')
+
+
 def logm(P):
     """
     Blanco, J. L. (2010). A tutorial on SE(3) transformation parameterizations and on-manifold optimization.
@@ -206,6 +213,7 @@ def logm(P):
     return P.at[:, :3, :3].set(w) \
                .at[:, :3, 3].set(jnp.einsum('...ij,...j', Vinv, P[:, :3, 3])) \
                .at[:, 3, 3].set(0)
+
 
 def expm(X):
     """

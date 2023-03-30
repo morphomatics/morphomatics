@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -25,7 +25,7 @@ class RiemannianNewtonRaphson(object):
 
     @staticmethod
     @partial(jax.jit, static_argnames=['M', 'F'])
-    def solve(M: Manifold, F: Callable[[jnp.array], float], init: jnp.array,
+    def solve(M: Manifold, F: Callable[[jnp.array], jnp.array], init: jnp.array,
               stepsize=1., maxiter=100, minnorm=1e-6) -> jnp.array:
         """
         Newton-Raphson iteration for solving F(x) = 0.

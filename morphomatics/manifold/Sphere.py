@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -15,7 +15,10 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from morphomatics.manifold import Manifold, Metric, Connection
+from morphomatics.manifold import Manifold, Metric
+from morphomatics.manifold.Euclidean import euclidean_inner
+from morphomatics.manifold.Metric import _eval_adjJacobi_embed
+
 
 class Sphere(Manifold):
     """The sphere of [... x k x m]-tensors embedded in R(n+1)
@@ -49,11 +52,19 @@ class Sphere(Manifold):
     def zerovec(self):
         return jnp.zeros(self.point_shape)
 
-    def normalize(self, X):
-        """Return Frobenius-normalized version of X in ambient space."""
-        return X / jnp.linalg.norm(X)
+    @staticmethod
+    def antipode(p):
+        return -p
 
-    class CanonicalStructure(Metric, Connection):
+    @staticmethod
+    def normalize(X):
+        """Return Frobenius-normalized version of X in ambient space."""
+        return X / (jnp.linalg.norm(X) + np.finfo(np.float64).eps)
+
+    def proj(self, p, X):
+        return X - euclidean_inner(p, X) * p
+
+    class CanonicalStructure(Metric):
         """
         The Riemannian metric used is the induced metric from the embedding space (R^nxn)^k, i.e., this manifold is a
         Riemannian submanifold of (R^3x3)^k endowed with the usual trace inner product.
@@ -72,28 +83,28 @@ class Sphere(Manifold):
         def typicaldist(self):
             return np.pi
 
-        @staticmethod
-        def antipode(p):
-            return -p
-
         def inner(self, p, X, Y):
-            return (X*Y).sum()
+            return euclidean_inner(X, Y)
 
         def norm(self, p, X):
             return jnp.sqrt(self.inner(p, X, X))
 
-        def proj(self, p, X):
-            return X - self.inner(p, p, X) * p
+        def flat(self, p, X):
+            """Lower vector X at p with the metric"""
+            return X
 
-        egrad2rgrad = proj
+        def sharp(self, p, dX):
+            """Raise covector dX at p with the metric"""
+            return dX
+
+        def egrad2rgrad(self, p, X):
+            return self._M.proj(p, X)
 
         def ehess2rhess(self, p, G, H, X):
             """Converts the Euclidean gradient P_G and Hessian H of a function at
             a point p along a tangent vector X to the Riemannian Hessian
             along X on the manifold.
             """
-            # TODO?
-            # return self.proj(p, H) - (jnp.transpose(p.flatten('F') )@P_G.flatten('F'))@X
             raise NotImplementedError('This function has not been implemented yet.')
 
         def retr(self, p, X):
@@ -101,7 +112,8 @@ class Sphere(Manifold):
 
         def exp(self, p, X):
             # numerical safeguard
-            X = self.proj(p, X)
+            p = Sphere.normalize(p)
+            X = self._M.proj(p, X)
 
             def full_exp(sqn):
                 n = jnp.sqrt(sqn)
@@ -114,7 +126,7 @@ class Sphere(Manifold):
 
             sq_norm = (X ** 2).sum()
             q = jax.lax.cond(sq_norm < 1e-6, trunc_exp, full_exp, sq_norm)
-            return q
+            return Sphere.normalize(q)
 
         def log(self, p, q):
 
@@ -156,16 +168,59 @@ class Sphere(Manifold):
             inner = (p * q).sum()
             return jax.lax.cond(inner > 1-1e-6, lambda _: jnp.sum((q-p)**2), lambda i: jnp.arccos(i)**2, inner)
 
-        # def eval_jacobiField(self, p, q, t, X):
-        #     phi = self.dist(p, q)
-        #     v = self.log(p, q)
-        #     gamTS = self.exp(p, t*v)
-        #
-        #     v = v / phi
-        #     Xtan_norm = self.inner(p, X, v)
-        #     Xtan = Xtan_norm * v
-        #     Xorth = X - Xtan
-        #
-        #     # tangential component of J: (1-t) * transp(p, gamTS, Xtan)
-        #     Jtan = Xtan_norm / phi * self.log(gamTS, q)
-        #     return gamTS, (jnp.sin((1 - t) * phi) / jnp.sin(phi)) * Xorth + Jtan
+        def eval_jacobiField(self, p, q, t, X):
+            phi = self.dist(p, q)
+            v = self.log(p, q)
+            gamTS = self.exp(p, t*v)
+
+            v = v / phi
+            Xtan_norm = self.inner(p, X, v)
+            Xtan = Xtan_norm * v
+            Xorth = X - Xtan
+
+            # tangential component of J: (1-t) * transp(p, gamTS, Xtan)
+            Jtan = Xtan_norm / phi * self.log(gamTS, q)
+            return gamTS, (jnp.sin((1 - t) * phi) / jnp.sin(phi)) * Xorth + Jtan
+
+        def _eval_adjJacobi(self, p, q, t, w):
+            return self._M.proj(p, _eval_adjJacobi_embed(self, p, q, t, w))
+
+        def eval_adjJacobi(self, p, q, t, w):
+            """Evaluate an adjoint jacobi field.
+
+            The decomposition of the curvature operator and the fact that only two of its eigenvectors are necessary is
+            used in the algorithm.
+
+            :param p: element of the hyperboloid
+            :param q: element of the hyperboloid
+            :param t: scalar in [0,1]
+            :param w: tangent vector at gamma(t;p,q)
+            :returns: tangent vector at p
+            """
+            dist = self.dist(p, q)
+
+            def _eval(dW):
+                d, W = dW
+                # all computations can be done at p, so only w has to be parallel translated
+                W = self.transp(self.geopoint(p, q, t), p, W)
+
+                # first eigenvector is normalized tangent of the geodesic -> corresponding eigenvalue is 0
+                T = self.log(p, q) / d
+
+                # second eigenvector is Gram Schmidt orthonormalization of W against T -> corresponding eigenvalue is 1
+                b1 = self.inner(p, W, T)
+                U = W - b1 * T
+                # Check whether W is (numerically) parallel to T;
+                # then, the adoint Jacobi field is only a scaling of the parallel transported tangent.
+                U = jax.lax.cond(jnp.linalg.norm(U) > 1e-3,
+                                 lambda v: v / self.norm(p, v),
+                                 lambda v: jnp.zeros_like(v), U)
+
+                b2 = self.inner(p, W, U)
+
+                a1 = 1 - t  # corresponds to the eigenvalue 0
+                a2 = jnp.sin((1 - t) * d) / jnp.sin(d)  # corresponds to the eigenvalue 1
+
+                return a1 * b1 * T + a2 * b2 * U
+
+            return jax.lax.cond(dist > 1e-6, _eval, lambda args: 1/(1-t) * args[-1], (dist, w))

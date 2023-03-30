@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -66,6 +66,9 @@ class GLpn(Manifold):
     def zerovec(self):
         """Returns the zero vector in the tangent space at g."""
         return jnp.zeros((self.k, self.n, self.n))
+
+    def proj(self, p, X):
+        return X
 
     def initAffineGroupStructure(self):
         """
@@ -130,6 +133,8 @@ class GLpn(Manifold):
                                 lambda A: jnp.einsum('...ij,...jk', A[-1], A[0]),  # exp of CCS connection
                                 (argv[0], jax.vmap(expm)(argv[-1])))
 
+        retr = exp
+
         def log(self, *argv):
             """Computes the Lie-theoretic and connection logarithm map
             (depending on signature, i.e. whether footpoint is given as well)
@@ -148,7 +153,7 @@ class GLpn(Manifold):
                 R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
             is used.
             """
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
 
         def dleft(self, f, X):
             """Derivative of the left translation by f applied to the tangent vector X at the identity.
@@ -176,5 +181,7 @@ class GLpn(Manifold):
             return jnp.einsum('kij,kjl,klm->kim', g, X, self.inverse(g))
 
         def transp(self, p, q, X):
-            #TODO
-            return
+            raise NotImplementedError('This function has not been implemented yet.')
+
+        def eval_jacobiField(self, R, Q, t, X):
+            raise NotImplementedError('This function has not been implemented yet.')
