@@ -247,18 +247,18 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self._M.connec.curvature_tensor)(p, v, w, x)
 
-        def eval_jacobiField(self, p: jnp.array, q: jnp.array, t: float, X: jnp.array) -> jnp.array:
+        def jacobiField(self, p: jnp.array, q: jnp.array, t: float, X: jnp.array) -> jnp.array:
             """
-            Evaluates a Jacobi field (with boundary conditions gam(0) = X, gam(1) = 0) along the geodesic gam from p to
+            Evaluates a Jacobi field (with boundary conditions gam'(0) = X, gam'(1) = 0) along the geodesic gam from p to
             q.
 
             :param p: element of M^k
             :param q: element of M^k
             :param t: scalar in [0,1]
             :param X: tangent vector at p
-            :return: tangent vector at gam(t)
+            :return: [gam(t), J], where J is the value of the Jacobi field (which is an element-wise Jacobi field) at gam(t)
             """
-            return jax.vmap(self._M.connec.eval_jacobiField)(p, q, t, X)
+            return jax.vmap(self._M.connec.jacobiField)(p, q, t, X)
 
         #### group interface ####
 

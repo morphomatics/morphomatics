@@ -207,11 +207,11 @@ class SPD(Manifold):
             """Raise covector dX at S with the metric"""
             raise NotImplementedError('This function has not been implemented yet.')
 
-        def eval_jacobiField(self, S, T, t, X):
+        def jacobiField(self, S, T, t, X):
             U = self.geopoint(S, T, t)
             return U, (1 - t) * self.transp(S, U, X)
 
-        def eval_adjJacobi(self, S, T, t, X):
+        def adjJacobi(self, S, T, t, X):
             U = self.geopoint(S, T, t)
             return (1 - t) * self.transp(U, S, X)
 

@@ -20,6 +20,9 @@ from morphomatics.manifold import Manifold
 class ShapeSpace(Manifold):
     """ Abstract base class for shape spaces. """
 
+    def __str__(self):
+        return self._name
+
     @abc.abstractmethod
     def update_ref_geom(self, v):
         '''

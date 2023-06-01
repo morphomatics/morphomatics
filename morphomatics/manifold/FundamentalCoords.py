@@ -69,9 +69,6 @@ class FundamentalCoords(ShapeSpace, Metric):
         point_shape = (len(self.mass),)
         super().__init__(name, dimension, point_shape, self, self, None)
 
-    def __str__(self):
-        return self._name
-
     @property
     def n_triangles(self):
         """Number of triangles of the reference surface
@@ -360,7 +357,7 @@ class FundamentalCoords(ShapeSpace, Metric):
         """
         raise NotImplementedError('This function has not been implemented yet.')
 
-    def eval_adjJacobi(self, X, Y, t, G):
+    def adjJacobi(self, X, Y, t, G):
         """
         Evaluates an adjoint Jacobi field along the geodesic gam from X to Z at X.
         :param X: element of the space of differential coordinates
@@ -418,8 +415,8 @@ class FundamentalCoords(ShapeSpace, Metric):
         cx, ux = self.disentangle(G)
         return self.entangle(self.SO.connec.transp(Cx, Cy, cx), self.SPD.connec.transp(Ux, Uy, ux))
 
-    def eval_jacobiField(self, p, q, t, X):
-        """Evaluates a Jacobi field (with boundary conditions gam(0) = X, gam(1) = 0) along the geodesic gam from p to q.
+    def jacobiField(self, p, q, t, X):
+        """Evaluates a Jacobi field (with boundary conditions gam'(0) = X, gam'(1) = 0) along the geodesic gam from p to q.
         :param p: element of the Riemannian manifold
         :param q: element of the Riemannian manifold
         :param t: scalar in [0,1]
@@ -430,7 +427,10 @@ class FundamentalCoords(ShapeSpace, Metric):
         Rp, Up = self.disentangle(p)
         Rq, Uq = self.disentangle(q)
         r, u = self.disentangle(X)
-        return self.entangle(self.SO.connec.jacobiField(Rp, Rq, t, r), self.SPD.connec.jacobiField(Up, Uq, t, u))
+
+        Jr = self.SO.connec.jacobiField(Rp, Rq, t, r)
+        Ju = self.SPD.connec.jacobiField(Up, Uq, t, u)
+        return [self.entangle(Jr[0], Ju[0]), self.entangle(Jr[1], Ju[1])]
 
     def setup_spanning_tree_path(self):
         """

@@ -30,7 +30,7 @@ class Surface(object):
         self._cache_v = dict()
         self._cache_f = dict()
 
-        self.v = v.astype(np.double, copy=False)
+        self.v = np.asarray(v).astype(np.double, copy=False)
         self.f = f
 
     @property

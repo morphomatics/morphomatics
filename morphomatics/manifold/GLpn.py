@@ -183,5 +183,5 @@ class GLpn(Manifold):
         def transp(self, p, q, X):
             raise NotImplementedError('This function has not been implemented yet.')
 
-        def eval_jacobiField(self, R, Q, t, X):
+        def jacobiField(self, R, Q, t, X):
             raise NotImplementedError('This function has not been implemented yet.')

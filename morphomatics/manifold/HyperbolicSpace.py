@@ -211,13 +211,14 @@ class HyperbolicSpace(Manifold):
 
             return jax.lax.cond(sqd < 1e-6, lambda X: X, do_transp, X)
 
-        def eval_jacobiField(self, p, q, t, X):
+        def jacobiField(self, p, q, t, X):
             return NotImplementedError('This function has not been implemented yet.')
 
-        def _eval_adjJacobi(self, p, q, t, w):
+        def _adjJacobi(self, p, q, t, w):
+            # alternative version to adjJacobi relying on automatic differentiation
             return self._M.proj(p, _eval_adjJacobi_embed(self, p, q, t, w))
 
-        def eval_adjJacobi(self, p, q, t, w):
+        def adjJacobi(self, p, q, t, w):
             """Evaluate an adjoint jacobi field.
 
             The decomposition of the curvature operator and the fact that only two of its eigenvectors are necessary is

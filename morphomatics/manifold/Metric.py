@@ -77,6 +77,7 @@ class Metric(Connection):
     def sharp(self, p, dX):
         """Raise covector dX at p with the metric"""
 
+    @abc.abstractmethod
     def adjJacobi(self, p, q, t, X):
         """Evaluates an adjoint Jacobi field for the geodesic gam from p to q at p.
         :param p: element of the Riemannian manifold
@@ -85,18 +86,6 @@ class Metric(Connection):
         :param X: tangent vector at gam(t)
         :return: tangent vector at p
         """
-        # return jax.lax.cond(t == 1,
-        #                     lambda args: jnp.zeros_like(args[3]),
-        #                     lambda args: jax.lax.cond(t == 0,
-        #                                               lambda args2: args2[3],
-        #                                               lambda args2: self.eval_adjJacobi(*args2),
-        #                                               args),
-        #                     (p, q, t, X))
-        return self.eval_adjJacobi(p, q, t, X)
-
-    @abc.abstractmethod
-    def eval_adjJacobi(self, p, q, t, X):
-        """Evaluates an adjoint Jacobi field along the geodesic gam from p to q. X is a vector at gam(t)"""
 
     def adjDxgeo(self, p, q, t, X):
         """Evaluates the adjoint of the differential of the geodesic gamma from p to q w.r.t. the starting point p at X,

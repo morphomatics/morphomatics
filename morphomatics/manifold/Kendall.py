@@ -222,8 +222,8 @@ class Kendall(ShapeSpace):
             q = Kendall.wellpos(p, q)
             return self._S.metric.squared_dist(p, q)
 
-        def eval_jacobiField(self, p, q, t, X):
-            # return self.proj(*super().eval_jacobiField(p, q, t, X))
+        def jacobiField(self, p, q, t, X):
+            # return self.proj(*super().jacobiField(p, q, t, X))
 
             # q = Kendall.wellpos(p, q)
             # phi = self._S.metric.dist(p, q)
@@ -233,13 +233,14 @@ class Kendall(ShapeSpace):
             # v = v / self._S.metric.norm(p, v)
             # Xtan = self._S.metric.inner(p, X, v) * v
             # Xorth = X - Xtan
-            #
-            # # TODO: Xtan not jet at gamTS
-            # return gamTS, (np.sin((1 - t) * phi) / np.sin(phi)) * Kendall.horizontal(gamTS, Xorth) + (1 - t) * Xtan
+
+            # # tangential component of J: (1-t) * transp(p, gamTS, Xtan)
+            # Jtan = Xtan_norm / phi * self._S.connec.log(gamTS, q)
+            # return gamTS, (np.sin((1 - t) * phi) / np.sin(phi)) * Kendall.horizontal(gamTS, Xorth) + Jtan
 
             raise NotImplementedError('This function has not been implemented yet.')
 
-        def eval_adjJacobi(self, p, q, t, X):
-            # return self.proj(p, super().eval_adjJacobi(p, q, t, X))
+        def adjJacobi(self, p, q, t, X):
+            # return self.proj(p, super().adjJacobi(p, q, t, X))
 
             raise NotImplementedError('This function has not been implemented yet.')

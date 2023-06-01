@@ -285,10 +285,10 @@ class TangentBundle(Manifold):
             vw = self.log(pu, qr)
             return jnp.sqrt(self.inner(pu, vw, vw))
 
-        def eval_jacobiField(self, p_A: jnp.array, p_B: jnp.array, t: float, X: jnp.array) -> jnp.array:
+        def jacobiField(self, p_A: jnp.array, p_B: jnp.array, t: float, X: jnp.array) -> jnp.array:
             raise NotImplementedError('This function has not been implemented yet.')
 
-        def eval_adjJacobi(self, p_A: jnp.array, p_B: jnp.array, t: float, X: jnp.array) -> jnp.array:
+        def adjJacobi(self, p_A: jnp.array, p_B: jnp.array, t: float, X: jnp.array) -> jnp.array:
             raise NotImplementedError('This function has not been implemented yet.')
 
 

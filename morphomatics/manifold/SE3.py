@@ -193,7 +193,7 @@ class SE3(Manifold):
         def pairmean(self, P, S):
             return self.exp(P, 0.5 * self.log(P, S))
 
-        def eval_jacobiField(self, P, S, t, X):
+        def jacobiField(self, P, S, t, X):
             raise NotImplementedError('This function has not been implemented yet.')
 
 

@@ -59,9 +59,6 @@ class DifferentialCoords(ShapeSpace, Metric):
         point_shape = (2, len(self.ref.f), 3, 3)
         super().__init__(name, dimension, point_shape, self, self, None)
 
-    def __str__(self):
-        return self._name
-
     def update_ref_geom(self, v):
         self.ref.v=v
 
@@ -310,19 +307,36 @@ class DifferentialCoords(ShapeSpace, Metric):
         rx, ux = self.disentangle(G)
         return self.entangle(self.SO.connec.transp(Rx, Ry, rx), self.SPD.connec.transp(Ux, Uy, ux))
 
-    def eval_jacobiField(self, p, q, t, X):
-        """Evaluates a Jacobi field (with boundary conditions gam(0) = X, gam(1) = 0) along the geodesic gam from p to q.
+    def jacobiField(self, p, q, t, X):
+        """Evaluates a Jacobi field (with boundary conditions gam'(0) = X, gam'(1) = 0) along the geodesic gam from p to q.
         :param p: element of the Riemannian manifold
         :param q: element of the Riemannian manifold
         :param t: scalar in [0,1]
         :param X: tangent vector at p
-        :return: tangent vector at gam(t)
+        :return: [gam(t), J]
         """
         # disentangle coords. into rotations and stretches
         Rp, Up = self.disentangle(p)
         Rq, Uq = self.disentangle(q)
         r, u = self.disentangle(X)
-        return self.entangle(self.SO.connec.jacobiField(Rp, Rq, t, r), self.SPD.connec.jacobiField(Up, Uq, t, u))
+
+        Jr = self.SO.connec.jacobiField(Rp, Rq, t, r)
+        Ju = self.SPD.connec.jacobiField(Up, Uq, t, u)
+        return [self.entangle(Jr[0], Ju[0]), self.entangle(Jr[1], Ju[1])]
+
+    def adjJacobi(self, p, q, t, X):
+        """Evaluates an adjoint Jacobi field (with boundary conditions gam'(0) = 0, gam'(t) = X) along the geodesic gam from p to q.
+        :param p: element of the Riemannian manifold
+        :param q: element of the Riemannian manifold
+        :param t: scalar in [0,1]
+        :param X: tangent vector at gam(t)
+        :return: tangent vector at p
+        """
+        # disentangle coords. into rotations and stretches
+        Rp, Up = self.disentangle(p)
+        Rq, Uq = self.disentangle(q)
+        r, u = self.disentangle(X)
+        return self.entangle(self.SO.metric.adjJacobi(Rp, Rq, t, r), self.SPD.metric.adjJacobi(Up, Uq, t, u))
 
     def coords(self, X):
         """Coordinate map for the tangent space at the identity"""

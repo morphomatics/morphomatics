@@ -430,10 +430,10 @@ class Bezierfold(Manifold):
         def transp(self, R, Q, X):
             raise NotImplementedError('This function has not been implemented yet.')
 
-        def eval_jacobiField(self, R, Q, t, X):
+        def jacobiField(self, R, Q, t, X):
             raise NotImplementedError('This function has not been implemented yet.')
 
-        def eval_adjJacobi(self, R, Q, t, X):
+        def adjJacobi(self, R, Q, t, X):
             raise NotImplementedError('This function has not been implemented yet.')
 
         def flat(self, p, X):

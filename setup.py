@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2022 Zuse Institute Berlin                                   #
+#   Copyright (C) 2023 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -15,7 +15,7 @@ from setuptools import setup
 setup(
   name = 'morphomatics',
   packages = ['morphomatics', 'morphomatics.geom', 'morphomatics.manifold', 'morphomatics.stats', 'morphomatics.opt'],
-  version = '3.0',
+  version = '3.0.1',
   version_name = 'Lucid Livia',
   license='ZIB Academic License',
   description = 'Geometric morphometrics in non-Euclidean shape spaces',

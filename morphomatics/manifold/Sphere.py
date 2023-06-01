@@ -153,9 +153,11 @@ class Sphere(Manifold):
             return self.exp(p, t * self.log(p, q))
 
         def transp(self, p, q, X):
-            d = self.dist(p, q)
-            do_transp = lambda X: X - self.inner(p, self.log(p, q), X)/d**2 * (self.log(p, q) + self.log(q, p))
-            return jax.lax.cond(d < 1e-6, lambda X: X, do_transp, X)
+            d2 = self.squared_dist(p, q)
+            def do_transp(V):
+                log_p_q = self.log(p, q)
+                return V - self.inner(p, log_p_q, V)/d2 * (log_p_q + self.log(q, p))
+            return jax.lax.cond(d2 < 1e-6, lambda X: X, do_transp, X)
 
         def pairmean(self, p, q):
             return self.geopoint(p, q, .5)
@@ -168,7 +170,7 @@ class Sphere(Manifold):
             inner = (p * q).sum()
             return jax.lax.cond(inner > 1-1e-6, lambda _: jnp.sum((q-p)**2), lambda i: jnp.arccos(i)**2, inner)
 
-        def eval_jacobiField(self, p, q, t, X):
+        def jacobiField(self, p, q, t, X):
             phi = self.dist(p, q)
             v = self.log(p, q)
             gamTS = self.exp(p, t*v)
@@ -182,11 +184,12 @@ class Sphere(Manifold):
             Jtan = Xtan_norm / phi * self.log(gamTS, q)
             return gamTS, (jnp.sin((1 - t) * phi) / jnp.sin(phi)) * Xorth + Jtan
 
-        def _eval_adjJacobi(self, p, q, t, w):
+        def _adjJacobi(self, p, q, t, w):
+            # alternative version to adjJacobi relying on automatic differentiation
             return self._M.proj(p, _eval_adjJacobi_embed(self, p, q, t, w))
 
-        def eval_adjJacobi(self, p, q, t, w):
-            """Evaluate an adjoint jacobi field.
+        def adjJacobi(self, p, q, t, w):
+            """Evaluate an adjoint Jacobi field.
 
             The decomposition of the curvature operator and the fact that only two of its eigenvectors are necessary is
             used in the algorithm.

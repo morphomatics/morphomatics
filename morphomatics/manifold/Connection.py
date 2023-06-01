@@ -60,26 +60,10 @@ class Connection(metaclass=abc.ABCMeta):
         is used.
         """
 
-    def jacobiField(self, p, q, t, X):
-        """Evaluates a Jacobi field (with boundary conditions gam(0) = X, gam(1) = 0) along the geodesic gam from p to q.
-        :param p: element of the Riemannian manifold
-        :param q: element of the Riemannian manifold
-        :param t: scalar in [0,1]
-        :param X: tangent vector at p
-        :return: tangent vector at gam(t)
-        """
-        return jax.lax.cond(t == 1,
-                            lambda args: jnp.zeros_like(args[3]),
-                            lambda args: jax.lax.cond(t == 0,
-                                                      lambda args2: args2[3],
-                                                      lambda args2: self.eval_jacobiField(*args2)[1],
-                                                      args),
-                            (p, q, t, X))
-
     @abc.abstractmethod
-    def eval_jacobiField(self, p, q, t, X):
+    def jacobiField(self, p, q, t, X):
         """
-        Evaluates a Jacobi field (with boundary conditions gam(0) = X, gam(1) = 0) along the geodesic gam from p to q.
+        Evaluates a Jacobi field (with boundary conditions gam'(0) = X, gam'(1) = 0) along the geodesic gam from p to q.
         :param p: element of the Riemannian manifold
         :param q: element of the Riemannian manifold
         :param t: scalar in [0,1]
@@ -87,19 +71,20 @@ class Connection(metaclass=abc.ABCMeta):
         :return: [b, J] with J and b being the Jacobi field at t and the corresponding basepoint
         """
 
+
     def dxgeo(self, p, q, t, X):
         """Evaluates the differential of the geodesic gam from p to q w.r.t. the starting point p at X,
         i.e, d_p gamma(t; ., q) applied to X; the result is en element of the tangent space at gam(t).
         """
 
-        return self.jacobiField(p, q, t, X)
+        return self.jacobiField(p, q, t, X)[1]
 
     def dygeo(self, p, q, t, X):
         """Evaluates the differential of the geodesic gam from p to q w.r.t. the end point q at X,
         i.e, d_q gamma(t; p, .) applied to X; the result is en element of the tangent space at gam(t).
         """
 
-        return self.jacobiField(q, p, 1 - t, X)
+        return self.jacobiField(q, p, 1 - t, X)[1]
 
 
 def _eval_jacobi_embed(C: Connection, p, q, t, X):

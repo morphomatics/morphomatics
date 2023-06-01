@@ -114,10 +114,10 @@ class Euclidean(Manifold):
         def dist(self, p, q):
             return jnp.linalg.norm(q - p)
 
-        def eval_jacobiField(self, p, q, t, X):
-            return (1-t) * X
+        def jacobiField(self, p, q, t, X):
+            return [self.geopoint(p, q, t), (1-t) * X]
 
-        def eval_adjJacobi(self, p, q, t, X):
+        def adjJacobi(self, p, q, t, X):
             return 1/(1-t) * X
 
 

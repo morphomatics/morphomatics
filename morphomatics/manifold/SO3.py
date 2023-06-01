@@ -220,7 +220,7 @@ class SO3(Manifold):
 
             return Pi
 
-        def eval_jacobiField(self, R, Q, t, X):
+        def jacobiField(self, R, Q, t, X):
             # ### using (forward-mode) automatic differentiation of geopoint(..)
             f = lambda O: self.geopoint(O, Q, t)
             geo, J = jax.jvp(f, (R,), (self.dright(R, X),))
@@ -293,7 +293,7 @@ class SO3(Manifold):
             return 1 / 4 * (-jnp.einsum('...ij,...jk,...kl', V, V, X) + 2 * jnp.einsum('...ij,...jk,...kl', V, X, V)
                             - jnp.einsum('...ij,...jk,...kl', X, V, V))
 
-        def eval_adjJacobi(self, R, Q, t, X):
+        def adjJacobi(self, R, Q, t, X):
             ### using (reverse-mode) automatic differentiation of geopoint(..)
             f = lambda O: self.geopoint(O, Q, t)
             geo, vjp = jax.vjp(f, R)
