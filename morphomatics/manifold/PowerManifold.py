@@ -156,7 +156,7 @@ class PowerManifold(Manifold):
 
             return jax.vmap(self._M.metric.sharp)(p, dv)
 
-        def eval_adjJacobi(self, p: jnp.array, q: jnp.array, t: float, X: jnp.array) -> jnp.array:
+        def adjJacobi(self, p: jnp.array, q: jnp.array, t: float, X: jnp.array) -> jnp.array:
             """
             Evaluates an adjoint Jacobi field along the geodesic gam from p to q. X is a vector at gam(t)
 
@@ -166,7 +166,7 @@ class PowerManifold(Manifold):
             :param X: tangent vector at gam(t)
             :return: tangent vector at p
             """
-            return jax.vmap(self._M.metric.eval_adjJacobi)(p, q, t, X)
+            return jax.vmap(self._M.metric.adjJacobi)(p, q, t, X)
 
         def egrad2rgrad(self, p, z):
             """Transform the Euclidean gradient of a function into the corresponding Riemannian gradient, i.e.,
