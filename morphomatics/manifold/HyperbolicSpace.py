@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2023 Zuse Institute Berlin                                   #
+#   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -54,9 +54,9 @@ class HyperbolicSpace(Manifold):
 
     @staticmethod
     def regularize(p):
-        """Regularize/project points that are slightly off the hyperboloid to avoid numerical problems. Only works for p
-        with minkowski_inner(p, p) < 0."""
-        return p / jnp.sqrt(jnp.abs(HyperbolicSpace.minkowski_inner(p, p)))
+        """Regularize/project points that are slightly off the hyperboloid to avoid numerical problems. Only apply when
+        minkowski_inner(p, p) < 0."""
+        return p / jnp.sqrt(jnp.abs(HyperbolicSpace.minkowski_inner(p, p)) + np.finfo(np.float64).eps)
 
     def rand(self, key: jax.random.KeyArray):
         p = jax.random.normal(key, self.point_shape)
@@ -123,7 +123,7 @@ class HyperbolicSpace(Manifold):
 
             d2 = jax.lax.cond(mink_inner_neg > 1+1e-6, lambda i: jnp.arccosh(i)**2, trunc_dist_sq, mink_inner_neg)
 
-            return d2
+            return jax.nn.relu(d2)
 
         def egrad2rgrad(self, p, H):
             H = H.at[-1].set(-H[-1])
@@ -140,7 +140,7 @@ class HyperbolicSpace(Manifold):
             # numerical safeguard
             X = self._M.proj(p, X)
 
-            sqnorm_X = self.inner(p, X, X)
+            sqnorm_X = jax.nn.relu(self.inner(p, X, X))
 
             def full_exp(n2):
                 n = jnp.sqrt(n2)
@@ -166,9 +166,8 @@ class HyperbolicSpace(Manifold):
                 return d/jnp.sinh(d) * (q - jnp.cosh(d) * p)
 
             def trunc_log(d2):
-                d = jnp.sqrt(d2)
                 # see also Pennec, "Hessian of the Riemannian squared distance", HAL INRIA, 2017.
-                return (1 - d**2/6) * (q - (1 + d**2/2 + d**4/24) * p)
+                return (1 - d2/6) * (q - (1 + d2/2 + d2**2/24) * p)
 
             v = jax.lax.cond(sqd < 1e-6, trunc_log, full_log, sqd)
 

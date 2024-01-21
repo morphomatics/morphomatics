@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2023 Zuse Institute Berlin                                   #
+#   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -59,7 +59,7 @@ class Sphere(Manifold):
     @staticmethod
     def normalize(X):
         """Return Frobenius-normalized version of X in ambient space."""
-        return X / (jnp.linalg.norm(X) + np.finfo(np.float64).eps)
+        return X / jnp.sqrt((X**2).sum() + np.finfo(np.float64).eps)
 
     def proj(self, p, X):
         return X - euclidean_inner(p, X) * p
@@ -116,7 +116,7 @@ class Sphere(Manifold):
             X = self._M.proj(p, X)
 
             def full_exp(sqn):
-                n = jnp.sqrt(sqn)
+                n = jnp.sqrt(sqn + jnp.finfo(jnp.float64).eps)
                 return jnp.cos(n) * p + jnp.sinc(n/jnp.pi) * X
 
             def trunc_exp(sqn):
@@ -131,7 +131,7 @@ class Sphere(Manifold):
         def log(self, p, q):
 
             def full_log(a2):
-                a = jnp.sqrt(a2)
+                a = jnp.sqrt(a2 + jnp.finfo(jnp.float64).eps)
                 return 1/jnp.sinc(a/jnp.pi) * q - a/jnp.tan(a) * p
 
             def trunc_log(a2):
@@ -164,11 +164,11 @@ class Sphere(Manifold):
 
         def dist(self, p, q):
             inner = (p * q).sum()
-            return jax.lax.cond(jnp.abs(inner) >= 1, lambda i: (i < 0)*jnp.pi, jnp.arccos, inner)
+            return jax.lax.cond(jnp.abs(inner) >= 1, lambda i: (i < 0)*jnp.pi, jnp.arccos, jnp.clip(inner, -1, 1))
 
         def squared_dist(self, p, q):
             inner = (p * q).sum()
-            return jax.lax.cond(inner > 1-1e-6, lambda _: jnp.sum((q-p)**2), lambda i: jnp.arccos(i)**2, inner)
+            return jax.lax.cond(inner > 1-1e-6, lambda _: jnp.sum((q-p)**2), lambda i: jnp.arccos(i)**2, jnp.clip(inner, None, 1-1e-6))
 
         def jacobiField(self, p, q, t, X):
             phi = self.dist(p, q)
@@ -208,7 +208,7 @@ class Sphere(Manifold):
                 W = self.transp(self.geopoint(p, q, t), p, W)
 
                 # first eigenvector is normalized tangent of the geodesic -> corresponding eigenvalue is 0
-                T = self.log(p, q) / d
+                T = self.log(p, q) / jnp.clip(d, 1e-6)  # clipping only for NAN debugging
 
                 # second eigenvector is Gram Schmidt orthonormalization of W against T -> corresponding eigenvalue is 1
                 b1 = self.inner(p, W, T)
@@ -216,7 +216,7 @@ class Sphere(Manifold):
                 # Check whether W is (numerically) parallel to T;
                 # then, the adoint Jacobi field is only a scaling of the parallel transported tangent.
                 U = jax.lax.cond(jnp.linalg.norm(U) > 1e-3,
-                                 lambda v: v / self.norm(p, v),
+                                 lambda v: v / jnp.clip(self.norm(p, v), 1e-3),  # clipping only for NAN debugging
                                  lambda v: jnp.zeros_like(v), U)
 
                 b2 = self.inner(p, W, U)
@@ -226,4 +226,4 @@ class Sphere(Manifold):
 
                 return a1 * b1 * T + a2 * b2 * U
 
-            return jax.lax.cond(dist > 1e-6, _eval, lambda args: 1/(1-t) * args[-1], (dist, w))
+            return jax.lax.cond(dist > 1e-6, _eval, lambda args: 1/jnp.clip(1-t, 1e-3) * args[-1], (dist, w))

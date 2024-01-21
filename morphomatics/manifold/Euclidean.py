@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2023 Zuse Institute Berlin                                   #
+#   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -52,7 +52,7 @@ class Euclidean(Manifold):
     class CanonicalStructure(Metric):
         """
         The Riemannian metric used is the induced metric from the embedding space (R^nxn)^k, i.e., this manifold is a
-        Riemannian submanifold of (R^3x3)^k endowed with the usual trace inner product.
+        Riemannian submanifold of (R^nxn)^k endowed with the usual trace inner product.
         """
 
         def __init__(self, M):
@@ -113,6 +113,9 @@ class Euclidean(Manifold):
 
         def dist(self, p, q):
             return jnp.linalg.norm(q - p)
+
+        def squared_dist(self, p, q):
+            return jnp.sum((p-q)**2)
 
         def jacobiField(self, p, q, t, X):
             return [self.geopoint(p, q, t), (1-t) * X]

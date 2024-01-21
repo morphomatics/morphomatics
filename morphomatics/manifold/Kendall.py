@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2023 Zuse Institute Berlin                                   #
+#   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the ZIB Academic License.   #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -177,7 +177,7 @@ class Kendall(ShapeSpace):
             raise NotImplementedError('This function has not been implemented yet.')
 
         def egrad2rgrad(self, p, X):
-            return self._M.proj
+            return self._M.proj(p, X)
 
         def ehess2rhess(self, p, G, H, X):
             """ Convert the Euclidean gradient P_G and Hessian H of a function at
