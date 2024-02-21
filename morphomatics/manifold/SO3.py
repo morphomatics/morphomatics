@@ -190,7 +190,7 @@ class SO3(Manifold):
             return jnp.sqrt(self.squared_dist(R, Q))
 
         def squared_dist(self, R, Q):
-            """product distance function"""
+            """product squared distance function"""
             X = logm(jnp.einsum('...ij,...kj', Q, R))
             return jnp.sum(X ** 2)
 

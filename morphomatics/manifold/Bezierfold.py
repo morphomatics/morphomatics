@@ -172,7 +172,7 @@ class Bezierfold(Manifold):
 
         @property
         def __str__(self):
-            return "Bezierfold-functional-based structure"
+            return "Bézierfold-functional-based structure"
 
         def inner(self, p: jnp.array, X: jnp.array, Y: jnp.array):
             """Functional-based metric, i.e. L²(I, TBM).
@@ -212,11 +212,11 @@ class Bezierfold(Manifold):
             # approximations via control points
             return self._Bf.K * self._Bf.M.metric.typicaldist
 
-        def dist(self, A, B) -> float:
+        def dist(self, a: jnp.array, b: jnp.array) -> float:
             """Approximate the distance between two Bézier splines
 
-            :param A: Bézier spline
-            :param B: Bézier spline
+            :param a: independent control points of a Bézier spline
+            :param b: independent control points of a Bézier spline
             :return: length of n-geodesic between A and B (approximation of the distance)
             """
             return jnp.sqrt(self.squared_dist(A, B))
@@ -233,7 +233,7 @@ class Bezierfold(Manifold):
 
         @staticmethod
         @partial(jax.jit, static_argnames=['Bf'])
-        def discexp(Bf, a, b):
+        def discexp(Bf, a: jnp.array, b: jnp.array):
             """
             Compute c such that [a,b,c] is a discrete 2-geodesic.
             :param Bf: Bezierfold a ang b live in

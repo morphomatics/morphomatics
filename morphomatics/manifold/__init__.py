@@ -17,13 +17,13 @@ from .Connection import Connection
 from .Metric import Metric
 
 # Standard manifolds
+from .Euclidean import Euclidean
 from .GLpn import GLpn
 from .SO3 import SO3
 from .SE3 import SE3
 from .SPD import SPD
 from .Sphere import Sphere
 from .HyperbolicSpace import HyperbolicSpace
-from .Euclidean import Euclidean
 from .TangentBundle import TangentBundle
 from. PowerManifold import PowerManifold
 

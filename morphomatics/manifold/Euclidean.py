@@ -19,7 +19,7 @@ from morphomatics.manifold import Manifold, Metric
 
 
 class Euclidean(Manifold):
-    """The euclidean space of [... x k x m]-tensors .
+    """The Euclidean space
     """
 
     def __init__(self, point_shape=(3,), structure='Canonical'):
@@ -46,7 +46,7 @@ class Euclidean(Manifold):
     def zerovec(self):
         return jnp.zeros(self.point_shape)
 
-    def proj(self, p, X):
+    def proj(self, x, X):
         return X
 
     class CanonicalStructure(Metric):
@@ -66,9 +66,9 @@ class Euclidean(Manifold):
 
         @property
         def typicaldist(self):
-            return jnp.sqrt(self.dim)
+            return jnp.sqrt(self._M.dim)
 
-        def inner(self, p, X, Y):
+        def inner(self, x, X, Y):
             return euclidean_inner(X, Y)
 
         def flat(self, p, X):
@@ -77,50 +77,50 @@ class Euclidean(Manifold):
         def sharp(self, p, dX):
             return dX
 
-        def norm(self, p, X):
-            return jnp.sqrt(self.inner(p, X, X))
+        def norm(self, x, X):
+            return jnp.linalg.norm(X)
 
-        def egrad2rgrad(self, p, X):
-            return self._M.proj(p, X)
+        def egrad2rgrad(self, x, X):
+            return X
 
-        def ehess2rhess(self, p, G, H, X):
+        def ehess2rhess(self, x, G, H, X):
             """Converts the Euclidean gradient P_G and Hessian H of a function at
             a point p along a tangent vector X to the Riemannian Hessian
             along X on the manifold.
             """
             return H
 
-        def retr(self, p, X):
-            return self.exp(p, X)
+        def retr(self, x, X):
+            return self.exp(x, X)
 
-        def exp(self, p, X):
-            return p + X
+        def exp(self, x, X):
+            return x + X
 
-        def log(self, p, q):
-            return q - p
+        def log(self, x, y):
+            return y - x
 
-        def curvature_tensor(self, p, X, Y, Z):
+        def curvature_tensor(self, x, X, Y, Z):
             return jnp.zeros(self._M.point_shape)
 
-        def geopoint(self, p, q, t):
-            return self.exp(p, t * self.log(p, q))
+        def geopoint(self, x, y, t):
+            return x + t * (y - x)
 
-        def transp(self, p, q, X):
+        def transp(self, x, y, X):
             return X
 
-        def pairmean(self, p, q):
-            return self.geopoint(p, q, .5)
+        def pairmean(self, x, y):
+            return self.geopoint(x, y, .5)
 
-        def dist(self, p, q):
-            return jnp.linalg.norm(q - p)
+        def dist(self, x, y):
+            return jnp.linalg.norm(y - x)
 
-        def squared_dist(self, p, q):
-            return jnp.sum((p-q)**2)
+        def squared_dist(self, x, y):
+            return jnp.sum((y-x)**2)
 
-        def jacobiField(self, p, q, t, X):
-            return [self.geopoint(p, q, t), (1-t) * X]
+        def jacobiField(self, x, y, t, X):
+            return [self.geopoint(x, y, t), (1-t) * X]
 
-        def adjJacobi(self, p, q, t, X):
+        def adjJacobi(self, x, y, t, X):
             return 1/(1-t) * X
 
 

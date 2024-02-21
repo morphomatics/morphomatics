@@ -25,7 +25,7 @@ class GLpn(Manifold):
      Elements of GL^+(n)^k are represented as arrays of size kxnxn.
 
      # NOTE: Tangent vectors are represented as left translations in the Lie algebra, i.e., a tangent vector X at g is
-     represented as as d_gL_{g^(-1)}(X)
+     represented as d_gL_{g^(-1)}(X)
      """
 
     def __init__(self, n=3, k=1, structure='AffineGroup'):
@@ -153,7 +153,7 @@ class GLpn(Manifold):
                 R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
             is used.
             """
-            raise NotImplementedError('This function has not been implemented yet.')
+            return - 1/4 * self.bracket(self.bracket(X, Y), Z)
 
         def dleft(self, f, X):
             """Derivative of the left translation by f applied to the tangent vector X at the identity.
@@ -180,8 +180,17 @@ class GLpn(Manifold):
             """
             return jnp.einsum('kij,kjl,klm->kim', g, X, self.inverse(g))
 
-        def transp(self, p, q, X):
-            raise NotImplementedError('This function has not been implemented yet.')
+        def transp(self, f, g, X):
+            """
+            Parallel transport of the CCS connection along one-parameter subgroups; see Sec. 5.3.3 of
+            X. Pennec and M. Lorenzi,
+            "Beyond Riemannian geometry: The affine connection setting for transformation groups."
+
+            """
+            f_invg = self.lefttrans(g, self.inverse(f))
+            h = self.geopoint(self.identity, f_invg, .5)
+
+            return self.dleft_inv(f_invg, self.dleft(h, self.dright(h, X)))
 
         def jacobiField(self, R, Q, t, X):
             raise NotImplementedError('This function has not been implemented yet.')
