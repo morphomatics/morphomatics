@@ -61,11 +61,11 @@ class Kendall(ShapeSpace):
         """ :returns: Coordinates of reference shape """
         return self.ref
 
-    def rand(self, key: jax.random.KeyArray):
+    def rand(self, key: jax.Array):
         p = jax.random.normal(key, self.point_shape)
         return self.project(p)
 
-    def randvec(self, p, key: jax.random.KeyArray):
+    def randvec(self, p, key: jax.Array):
         v = jax.random.normal(key, self.point_shape)
         v = self.center(v)
         return self.horizontal(p, self._S.proj(p, v))

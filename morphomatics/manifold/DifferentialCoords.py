@@ -152,7 +152,7 @@ class DifferentialCoords(ShapeSpace, Metric):
     def ref_coords(self):
         return jnp.tile(jnp.eye(3), (2*len(self.ref.f), 1)).reshape(self.point_shape)
 
-    def rand(self, key: jax.random.KeyArray):
+    def rand(self, key: jax.Array):
         k1, k2 = jax.random.split(key)
         return self.entangle(self.SO.rand(k1), self.SPD.rand(k2))
 

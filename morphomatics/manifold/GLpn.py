@@ -52,13 +52,13 @@ class GLpn(Manifold):
     def k(self):
         return self._k
 
-    def rand(self, key: jax.random.KeyArray):
+    def rand(self, key: jax.Array):
         """Returns a random point in the Lie group. This does not
         follow a specific distribution."""
         A = jax.random.normal(key, self.point_shape)
         return jax.vmap(expm)(A)
 
-    def randvec(self, A, key: jax.random.KeyArray):
+    def randvec(self, A, key: jax.Array):
         """Returns a random vector in the tangent space at A.
         """
         return jax.random.normal(key, self.point_shape)

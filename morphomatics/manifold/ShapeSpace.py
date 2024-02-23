@@ -48,7 +48,7 @@ class ShapeSpace(Manifold):
     def ref_coords(self):
         """ :returns: Coordinates of reference shape """
 
-    def randvec(self, X, key: jax.random.KeyArray):
+    def randvec(self, X, key: jax.Array):
         Y = self.rand(key)
         y = self.log(X, Y)
         return y / self.norm(X, y)

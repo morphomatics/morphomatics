@@ -117,12 +117,12 @@ class GLpCoords(ShapeSpace):
         """
         return self.group.identity
 
-    def rand(self, key: jax.random.KeyArray):
+    def rand(self, key: jax.Array):
         """Random set of coordinates () won't represent a 'nice' shape).
         """
         return self.GLp.rand(key)
 
-    def randvec(self, A, key: jax.random.KeyArray):
+    def randvec(self, A, key: jax.Array):
         return self.GLp.randvec(A, key)
 
     def zerovec(self):

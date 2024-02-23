@@ -52,14 +52,14 @@ class PowerManifold(Manifold):
         self._connec = structure if self.atom_manifold.connec is not None else None
         self._group = structure if self.atom_manifold.group is not None else None
 
-    def rand(self, key: jax.random.KeyArray) -> jnp.array:
+    def rand(self, key: jax.Array) -> jnp.array:
         """ Random element of the power manifold
         :param key: a PRNG key
         """
         subkeys = jax.random.split(key, self.k)
         return jax.vmap(self.atom_manifold.rand)(subkeys)
 
-    def randvec(self, p: jnp.array, key: jax.random.KeyArray) -> jnp.array:
+    def randvec(self, p: jnp.array, key: jax.Array) -> jnp.array:
         """Random vector in the tangent space of the point pu
 
         :param p: element of M^k

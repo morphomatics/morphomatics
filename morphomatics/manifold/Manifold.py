@@ -69,11 +69,11 @@ class Manifold(metaclass=abc.ABCMeta):
         return self._group
 
     @abc.abstractmethod
-    def rand(self, key: jax.random.KeyArray):
+    def rand(self, key: jax.Array):
         """Returns a random point of the manifold."""
 
     @abc.abstractmethod
-    def randvec(self, p, key: jax.random.KeyArray):
+    def randvec(self, p, key: jax.Array):
         """Returns a random vector in the tangent space at p."""
 
     @abc.abstractmethod

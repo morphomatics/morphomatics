@@ -55,15 +55,15 @@ class SPD(Manifold):
         if structure:
             getattr(self, f'init{structure}Structure')()
 
-    def randsym(self, key: jax.random.KeyArray):
+    def randsym(self, key: jax.Array):
         S = jax.random.normal(key, self.point_shape)
         return multisym(S)
 
-    def rand(self, key: jax.random.KeyArray):
+    def rand(self, key: jax.Array):
         S = jax.random.normal(key, self.point_shape)
         return jnp.einsum('...ji,...jk->...ik', S, S)
 
-    def randvec(self, X, key: jax.random.KeyArray):
+    def randvec(self, X, key: jax.Array):
         U = self.randsym(key)
         nrmU = jnp.sqrt(jnp.tensordot(U, U, axes=U.ndim))
         return U / nrmU

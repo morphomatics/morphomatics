@@ -64,14 +64,14 @@ class SO3(Manifold):
     def k(self):
         return self._k
 
-    def randskew(self, key: jax.random.KeyArray):
+    def randskew(self, key: jax.Array):
         S = jax.random.normal(key, self.point_shape)
         return multiskew(S)
 
-    def rand(self, key: jax.random.KeyArray):
+    def rand(self, key: jax.Array):
         return self.group.exp(self.randskew(key))
 
-    def randvec(self, X, key: jax.random.KeyArray):
+    def randvec(self, X, key: jax.Array):
         U = self.randskew(key)
         nrmU = jnp.sqrt(jnp.tensordot(U, U, axes=U.ndim))
         return U / nrmU

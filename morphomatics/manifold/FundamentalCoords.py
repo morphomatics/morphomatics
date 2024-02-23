@@ -250,7 +250,7 @@ class FundamentalCoords(ShapeSpace, Metric):
     def ref_coords(self):
         return self._identity
 
-    def rand(self, key: jax.random.KeyArray):
+    def rand(self, key: jax.Array):
         k1, k2 = jax.random.split(key)
         R = self.SO.rand(k1)
         U = self.SPD.rand(k2)

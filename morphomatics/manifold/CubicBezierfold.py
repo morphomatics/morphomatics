@@ -95,13 +95,13 @@ class CubicBezierfold(Manifold):
         else:
             return False
 
-    def rand(self, key: jax.random.KeyArray) -> BezierSpline: #TODO: velocity repr.
+    def rand(self, key: jax.Array) -> BezierSpline: #TODO: velocity repr.
         """Return random Bézier spline"""
         subkeys = jax.random.split(key, self.K + 1)
         return BezierSpline(self.M, full_set(self.M, jax.vmap(self.M.rand)(subkeys),
                                              self.degrees, self.iscycle))
 
-    def randvec(self, B: BezierSpline, key: jax.random.KeyArray) -> jnp.array: #TODO: velocity repr.
+    def randvec(self, B: BezierSpline, key: jax.Array) -> jnp.array: #TODO: velocity repr.
         """Return random vector for every independent control point"""
         pts = indep_set(B, self.iscycle)
         subkeys = jax.random.split(key, len(pts))

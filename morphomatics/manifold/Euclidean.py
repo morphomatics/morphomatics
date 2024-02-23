@@ -37,10 +37,10 @@ class Euclidean(Manifold):
         self._metric = structure
         self._connec = structure
 
-    def rand(self, key: jax.random.KeyArray):
+    def rand(self, key: jax.Array):
         return jax.random.normal(key, self.point_shape)
 
-    def randvec(self, X, key: jax.random.KeyArray):
+    def randvec(self, X, key: jax.Array):
         return jax.random.normal(key, self.point_shape)
 
     def zerovec(self):

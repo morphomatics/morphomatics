@@ -92,7 +92,7 @@ class PointDistributionModel(ShapeSpace, Metric):
     def curvature_tensor(self, p, X, Y, Z):
         return self.zerovec()
 
-    def rand(self, key: jax.random.KeyArray):
+    def rand(self, key: jax.Array):
         v = jax.random.normal(key, self.ref.v.shape)
         return self.to_coords(v)
 

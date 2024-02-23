@@ -51,14 +51,14 @@ class TangentBundle(Manifold):
         self._metric = structure
         self._connec = structure
 
-    def rand(self, key: jax.random.KeyArray) -> jnp.array:
+    def rand(self, key: jax.Array) -> jnp.array:
         """Random element of TM"""
         k1, k2 = jax.random.split(key, 2)
         p = self._base_manifold.rand(k1)
         u = self._base_manifold.randvec(k2)
         return jnp.stack((p, u))
 
-    def randvec(self, pu: jnp.array, key: jax.random.KeyArray) -> jnp.array:
+    def randvec(self, pu: jnp.array, key: jax.Array) -> jnp.array:
         """Random vector in the tangent space of the point pu
 
         :param pu: element of TM

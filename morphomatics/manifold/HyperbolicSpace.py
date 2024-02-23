@@ -58,11 +58,11 @@ class HyperbolicSpace(Manifold):
         minkowski_inner(p, p) < 0."""
         return p / jnp.sqrt(jnp.abs(HyperbolicSpace.minkowski_inner(p, p)) + np.finfo(np.float64).eps)
 
-    def rand(self, key: jax.random.KeyArray):
+    def rand(self, key: jax.Array):
         p = jax.random.normal(key, self.point_shape)
         return self.project_to_manifold(p)
 
-    def randvec(self, p, key: jax.random.KeyArray):
+    def randvec(self, p, key: jax.Array):
         H = jax.random.normal(key, self.point_shape)
         return H + HyperbolicSpace.minkowski_inner(p, H) * p
 

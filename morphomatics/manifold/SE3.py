@@ -67,14 +67,14 @@ class SE3(Manifold):
     def k(self):
         return self._k
 
-    def rand(self, key: jax.random.KeyArray):
+    def rand(self, key: jax.Array):
         k1, k2 = jax.random.split(key, 2)
         return jnp.zeros(self.point_shape)                   \
             .at[:, :3, :3].set(self._SO.rand(k1))             \
             .at[:, :3, 3].set(jax.random.normal(k2, (self._k, 3))) \
             .at[:, 3, 3].set(1)
 
-    def randvec(self, P, key: jax.random.KeyArray):
+    def randvec(self, P, key: jax.Array):
         k1, k2 = jax.random.split(key, 2)
         return jnp.zeros(self.point_shape)                       \
             .at[:, :3, :3].set(self._SO.randvec(P[:, :3, :3], k1))  \
