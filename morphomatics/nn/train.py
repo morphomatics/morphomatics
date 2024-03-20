@@ -28,17 +28,23 @@ class TrainingState(NamedTuple):
     opt_state: optax.OptState
 
 
-def weighted_cross_entropy_loss(params: hk.Params, graph: jraph.GraphsTuple, label: jnp.ndarray, network, rn_key,
-                                mask, weights: jnp.array = None) -> jnp.ndarray:
-    """Weighted cross-entropy classification loss, regularised by L2 weight decay.
+def weighted_cross_entropy_loss(params: hk.Params, graph: jraph.GraphsTuple, label: jnp.ndarray, network: hk.Transformed,
+                                rn_key: jax.random.PRNGKey, mask: jnp.array, weights: jnp.array = None) -> jnp.ndarray:
+    """Weighted cross-entropy classification loss
+
+    :param params: network parameters
+    :param graph: graph, possibly batched, on which the loss is to be evaluated
+    :param label: ground truth labels
+    :param network: graph neural network
+    :param rn_key: random number key
+    :param mask: binary mask to mask dummy graphs from batching (use jraph's get_graph_padding_mask if applicable)
+    :param weights: class weights (all one by default)
+    :return: scalar loss
 
     Can be used for both transductive and inductive learning. In the latter case, batch may only consist of one graph,
     and the labels must be zero vectors for test nodes.
 
     """
-
-    if mask is None:
-        mask = jnp.ones(len(graph.n_node), dtype=int)
 
     logits = network.apply(params, rn_key, graph)
     NUM_CLASSES = logits.shape[-1]
@@ -47,34 +53,26 @@ def weighted_cross_entropy_loss(params: hk.Params, graph: jraph.GraphsTuple, lab
     if weights is None:
         weights = jnp.ones(NUM_CLASSES) / NUM_CLASSES
 
-    # jax.debug.print('one_hot: {}.', one_hot)
-    # jax.debug.print('weights: {}.', weights)
-    # jax.debug.print('labels: {}.', label)
-    # jax.debug.print('mask: {}.', mask)
-    # jax.debug.print('log_softmax: {}.', jax.nn.softmax(logits))
-    # jax.debug.print('logits: {}.', logits)
-
     # l2_regularizer = 0.5 * sum(
     #     jnp.sum(jnp.square(p)) for p in jax.tree_util.tree_leaves(params))
 
     terms = weights[None] * one_hot * jax.nn.log_softmax(logits)
-    # jax.debug.print('terms: {}.', terms)
-    # jax.debug.print('masked_terms: {}.', jax.lax.select(mask, -terms.sum(axis=1), jnp.zeros_like(mask, dtype=float)))
-    # log_likelihood = jax.ops.segment_sum(terms.sum(axis=1), mask, num_segments=2)[1]
+    # log_likelihood = jax.ops.segment_sum(-terms.sum(axis=1), mask.astype(jnp.int32), num_segments=2)[1]
     log_likelihood = jax.lax.select(mask, -terms.sum(axis=1), jnp.zeros_like(mask, dtype=float)).sum()
-    # jax.debug.print('log_likelihood: {}.', log_likelihood)
     return log_likelihood / jnp.sum(mask)  # + 1e-4 * l2_regularizer
 
 
 @partial(jax.jit, static_argnames=['num_classes'])
 def confusion_matrix(predictions: jnp.array, results: jnp.array, num_classes: int, labels: jnp.array,
-                     mask: jnp.ndarray = None) -> jnp.array:
-    """Encodes true positives (TP), false positives (FP), and false negatives (FN) of a multi-class classification in a matrix
+                     mask: jnp.array) -> jnp.array:
+    """Encodes true positives (TP), false positives (FP), and false negatives (FN) of a multi-class classification in a
+    matrix
 
     :param predictions: array of predicted classes
     :param results: boolean array indicating correct classification
     :param num_classes: number of classes
-    :param labels: true labels (enumerated as results)
+    :param labels: ground truth labels (enumerated as results)
+    :param mask: binary mask to mask dummy graphs from batching
     :return: matrix of size [num_classes, 3]; rows represent classes; the first colum counts TPs, the second FPs, and
     the third FNs for each class
     """
@@ -100,26 +98,41 @@ def confusion_matrix(predictions: jnp.array, results: jnp.array, num_classes: in
 
 
 @partial(jax.jit, static_argnames=['num_classes', 'network'])
-def evaluate(params: hk.Params, graph: jraph.GraphsTuple, labels: jnp.ndarray, num_classes: int, network, rn_key,
-             mask: jnp.ndarray = None) -> jnp.ndarray:
-    """Evaluation metric (classification accuracy)."""
-    if mask is None:
-        mask = jnp.ones(len(graph.n_node))
+def evaluate(params: hk.Params, graph: jraph.GraphsTuple, labels: jnp.ndarray, num_classes: int, network: hk.Transformed,
+             rn_key: jax.random.PRNGKey, mask: jnp.ndarray) -> jnp.ndarray:
+    """Evaluation metric: classification accuracy
+
+    :param params: network parameters
+    :param graph: graph, possibly batched, on which the loss is to be evaluated
+    :param labels: ground truth labels
+    :param num_classes: only needed for consistency with F1 score
+    :param network: graph neural network
+    :param rn_key: random number key
+    :param mask: binary mask to mask dummy graphs from batching
+    :return: score in [0,1]
+    """
 
     logits = network.apply(params, rn_key, graph)
     predictions = jnp.argmax(logits, axis=-1)
     acc = jnp.sum((predictions == labels) * mask) / jnp.sum(mask)
 
-    # jax.debug.print('max(predictions): {}', jnp.max(predictions))
     return acc
 
 
 @partial(jax.jit, static_argnames=['num_classes', 'network'])
-def evaluate_F1(params: hk.Params, graph: jraph.GraphsTuple, labels: jnp.ndarray, num_classes: int, network, rn_key,
-                mask: jnp.ndarray = None) -> jnp.ndarray:
-    """Evaluation metric (classification accuracy)."""
-    if mask is None:
-        mask = jnp.ones(len(graph.n_node))
+def evaluate_F1(params: hk.Params, graph: jraph.GraphsTuple, labels: jnp.ndarray, num_classes: int,
+                network: hk.Transformed, rn_key: jax.random.PRNGKey, mask: jnp.ndarray) -> jnp.ndarray:
+    """Evaluation metric: F1 score for classification
+
+    :param params: network parameters
+    :param graph: graph, possibly batched, on which the loss is to be evaluated
+    :param labels: ground truth labels
+    :param num_classes: only needed for consistency with F1 score
+    :param network: graph neural network
+    :param rn_key: random number key
+    :param mask: binary mask to mask dummy graphs from batching
+    :return: score in [0,1]
+    """
 
     logits = network.apply(params, rn_key, graph)
     predictions = jnp.argmax(logits, axis=-1)
@@ -137,24 +150,33 @@ def evaluate_F1(params: hk.Params, graph: jraph.GraphsTuple, labels: jnp.ndarray
     return f1_macro(C)
 
 
-@partial(jax.jit, static_argnames=['optimizer', 'network'])
-def update(state: TrainingState, graph: jraph.GraphsTuple, label: jnp.ndarray, optimizer, network, rn_key,
-           mask: jnp.ndarray = None, weights: jnp.ndarray = None) -> TrainingState:
-    """Learning rule (stochastic gradient descent)."""
+@partial(jax.jit, static_argnames=['optimizer', 'network', 'verbosity'])
+def update(state: TrainingState, graph: jraph.GraphsTuple, label: jnp.ndarray, optimizer: optax.GradientTransformation,
+           network: hk.Transformed, rn_key: jax.random.PRNGKey, mask: jnp.ndarray, weights: jnp.ndarray = None,
+           verbosity: int = 0) -> TrainingState:
+    """Learning rule (stochastic gradient descent)
+
+    :param state: current training state
+    :param graph: graph (possibly batched)
+    :param label: ground truth labels
+    :param optimizer: optimizer function (e.g., optax adam)
+    :param network: graph neural network
+    :param rn_key: random number key
+    :param mask: binary mask to mask dummy graphs from batching (use jraph's get_graph_padding_mask if applicable)
+    :param weights: class weights (all one by default)
+    :param verbosity: verbosity level between 0 and 2
+    :return: updated training state
+    """
     value, grads = jax.value_and_grad(weighted_cross_entropy_loss)(state.params, graph, label, network, rn_key, mask,
                                                                    weights)
     updates, opt_state = optimizer.update(grads, state.opt_state, state.params)
 
-    # jax.debug.print('value: {}', value)
-    # jax.debug.print("||grads_i||_inf: {}", jax.tree_util.tree_map(lambda a: jnp.max(jnp.abs(a)), grads))
-    # infnrm = jnp.round(jax.tree_util.tree_reduce(lambda a, b: jnp.max(jnp.array(a, b)),
-    #                                              jax.tree_util.tree_map(lambda a: jnp.max(jnp.abs(a)), grads)),
-    #                    3)
-    # jax.debug.print("||grads||_inf: {}", infnrm)
-    # jax.debug.print('params: {}', state.params)
+    if verbosity > 0:
+        jax.debug.print('value: {}', value)
+    if verbosity > 1:
+        jax.debug.print("||grads_i||_inf: {}", jax.tree_util.tree_map(lambda a: jnp.max(jnp.abs(a)), grads))
 
     params = optax.apply_updates(state.params, updates)
     # Compute avg_params, the exponential moving average of the "live" params.
     avg_params = optax.incremental_update(params, state.avg_params, step_size=0.1)
     return TrainingState(params, avg_params, opt_state)
-    # return TrainingState(params, params, opt_state)

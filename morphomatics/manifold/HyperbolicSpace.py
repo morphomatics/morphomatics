@@ -121,7 +121,7 @@ class HyperbolicSpace(Manifold):
                 # 4th order approximation of arccosh**2 around 1
                 return 2*(x-1) - 1/3*(x-1)**2 + 4/45*(x-1)**3
 
-            d2 = jax.lax.cond(mink_inner_neg > 1+1e-6, lambda i: jnp.arccosh(i)**2, trunc_dist_sq, mink_inner_neg)
+            d2 = jax.lax.cond(mink_inner_neg > 1+1e-6, lambda i: jnp.acosh(i)**2, trunc_dist_sq, mink_inner_neg)
 
             return jax.nn.relu(d2)
 
@@ -140,37 +140,38 @@ class HyperbolicSpace(Manifold):
             # numerical safeguard
             X = self._M.proj(p, X)
 
-            sqnorm_X = jax.nn.relu(self.inner(p, X, X))
-
             def full_exp(n2):
                 n = jnp.sqrt(n2)
                 return jnp.cosh(n) * p + jnp.sinh(n) * X/n
-
+            
             def trunc_exp(n2):
                 # 6th order approximation of cosh(n)*p + sinh(n)*X/n around 0
                 return p+X + 1/6 * n2 * (3*p+X) + 1/120 * n2**2 * (5*p+X)
 
+            sqnorm_X = self.inner(p, X, X)
+            sqnorm_X = jnp.clip(sqnorm_X, a_min=0.)
+            
             p = jax.lax.cond(sqnorm_X < 1e-6, trunc_exp, full_exp, sqnorm_X)
-
-            return HyperbolicSpace.regularize(p)
+            
+            return HyperbolicSpace.project_to_manifold(p)
 
         def retr(self, p, X):
             return self.exp(p, X)
 
         def log(self, p, q):
             sqd = self.squared_dist(p, q)
-
+            
             def full_log(d2):
                 # For the formula see Eq. (13) in Pennec, "Hessian of the Riemannian squared distance", HAL INRIA, 2017.
                 d = jnp.sqrt(d2)
                 return d/jnp.sinh(d) * (q - jnp.cosh(d) * p)
-
+            
             def trunc_log(d2):
                 # see also Pennec, "Hessian of the Riemannian squared distance", HAL INRIA, 2017.
                 return (1 - d2/6) * (q - (1 + d2/2 + d2**2/24) * p)
-
+            
             v = jax.lax.cond(sqd < 1e-6, trunc_log, full_log, sqd)
-
+            
             return self._M.proj(p, v)
 
         def geopoint(self, p, q, t):
@@ -244,7 +245,7 @@ class HyperbolicSpace(Manifold):
                 U = W - b1 * T
                 # Check whether W is (numerically) parallel to T;
                 # then, the adoint Jacobi field is only a scaling of the parallel transported tangent.
-                U = jax.lax.cond(jnp.linalg.norm(U) > 1e-3,
+                U = jax.lax.cond(jnp.linalg.norm(U) > 1e-6,
                                  lambda v: v / self.norm(p, v),
                                  lambda v: jnp.zeros_like(v), U)
 

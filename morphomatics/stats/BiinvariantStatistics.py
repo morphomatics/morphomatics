@@ -89,14 +89,14 @@ class BiinvariantStatistics(object):
 
     def groupmean(self, data):
         """
-        :param data: list of elements in G (sufficiently close)
+        :param data: array of elements in G (sufficiently close)
         :return: group mean of data points
         """
         return Mean.compute(self.G, data)
 
     def mahalanobisdist(self, A, g):
         """ Bi-invariant Mahalanobis distance in G
-        :param A: list of data points in G
+        :param A: array of data points in G
         :param g: element of G
         :return: Mahalanobis distance of g to the distribution of the data points in A
         """
@@ -108,8 +108,8 @@ class BiinvariantStatistics(object):
 
     def hotellingT2(self, A, B):
         """ Bi-invariant Hotelling T^2 statistic in G
-        :param A: list of data points in G
-        :param B: list of data points in G
+        :param A: array of data points in G
+        :param B: array of data points in G
         :return: Hotelling T^2 statistic between the distribution of the samples in A and B
         """
         m, n = len(A), len(B)
@@ -120,8 +120,8 @@ class BiinvariantStatistics(object):
 
     def bhattacharyya(self, A, B):
         """ Bi-invariant Bhattacharyya distance in G
-        :param A: list of data points in G
-        :param B: list of data points in G
+        :param A: array of data points in G
+        :param B: array of data points in G
         :return: Bhattacharyya distance between the distribution of the samples in A and B
         """
         C_avg, C_A, C_B, mean_A, mean_B = self.averaged_sample_covariance(A, B)
@@ -133,7 +133,7 @@ class BiinvariantStatistics(object):
 
     def centralized_sample_covariance(self, A):
         """ Centralized sample covariance of G–valued data
-        :param A: list of data points in G
+        :param A: array of data points in G
         :return: covariance matrix defined on (coordinate representations of) tangent vectors at the identity
         """
         m = len(A)
@@ -152,8 +152,8 @@ class BiinvariantStatistics(object):
 
     def pooled_sample_covariance(self, A, B):
         """Pooled sample covariance of two data sets in G.
-        :param A: list of data points
-        :param B: list of data points
+        :param A: array of data points
+        :param B: array of data points
         :return: covariance operator acting on vectors in the tangent space at the identity
         """
         m, n = len(A), len(B)
@@ -166,8 +166,8 @@ class BiinvariantStatistics(object):
 
     def averaged_sample_covariance(self, A, B):
         """Averaged sample covariance of two data sets in G.
-        :param A: list of data points
-        :param B: list of data points
+        :param A: array of data points
+        :param B: array of data points
         :return: covariance operator acting on vectors in the tangent space at the identity
         """
         C_A, mean_A = self.centralized_sample_covariance(A)

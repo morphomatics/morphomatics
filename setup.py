@@ -14,9 +14,15 @@ from setuptools import setup
 
 setup(
   name = 'morphomatics',
-  packages = ['morphomatics', 'morphomatics.geom', 'morphomatics.manifold', 'morphomatics.stats', 'morphomatics.opt'],
-  version = '3.0.1',
-  version_name = 'Lucid Livia',
+  packages = ['morphomatics',
+              'morphomatics.geom',
+              'morphomatics.graph',
+              'morphomatics.manifold',
+              'morphomatics.nn',
+              'morphomatics.opt',
+              'morphomatics.stats'],
+  version = '4.0.dev0',
+  version_name = 'Trained Tiberius',
   license='ZIB Academic License',
   description = 'Geometric morphometrics in non-Euclidean shape spaces',
   author = 'Christoph von Tycowicz et al.',
@@ -24,10 +30,11 @@ setup(
   url = 'https://morphomatics.github.io/',
   keywords = ['Shape Analysis', 'Morphometrics', 'Geometric Statistics'],
   install_requires=[
-          'jax>=0.3.16',
-          'jaxlib>=0.3.16',
-          'numpy',
-          'scipy'
+          'jax>=0.4.25',
+          'jaxlib>=0.4.25',
+          'jraph',
+          'dm-haiku',
+          'optax'
       ],
   extras_require = {'all': ['pymanopt>=2.0.1']},
   classifiers=[
@@ -35,9 +42,9 @@ setup(
     'Intended Audience :: Developers',
     'Topic :: Software Development :: Build Tools',
     'License :: ZIB Academic License',
-    'Programming Language :: Python :: 3.8',
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
-    'Programming Language :: Python :: 3.11'
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12'
   ],
 )

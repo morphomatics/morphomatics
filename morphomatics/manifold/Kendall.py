@@ -170,11 +170,11 @@ class Kendall(ShapeSpace):
 
         def flat(self, p, X):
             """Lower vector X at p with the metric"""
-            raise NotImplementedError('This function has not been implemented yet.')
+            return self._S.metric.flat(p, X)
 
         def sharp(self, p, dX):
             """Raise covector dX at p with the metric"""
-            raise NotImplementedError('This function has not been implemented yet.')
+            return self._S.metric.sharp(p, dX)
 
         def egrad2rgrad(self, p, X):
             return self._M.proj(p, X)
