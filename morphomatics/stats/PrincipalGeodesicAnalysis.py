@@ -55,17 +55,17 @@ class PrincipalGeodesicAnalysis(object):
         v = jax.vmap(jax.jit(mfd.connec.log), (None, 0))(mu, data)
 
         if dual:
-            # setup dual-covariance operator / (scaled) gram matrix
-            # C = mfd.metric.inner(mu, v, v) / N #TODO: inner() does not support lists in general -> change to (parallel) for loops
+            # setup dual-covariance operator / (scaled) Gram matrix
             idx = jnp.triu_indices(N)
             C = jnp.zeros((N,N))
             C = C.at[idx].set(
-                jax.vmap(jax.jit(lambda i: mfd.metric.inner(mu, v[i[0]], v[i[1]]) / N))(idx))
+                jax.vmap(mfd.metric.inner, in_axes=(None, 0, 0))(mu, v[idx[0]], v[idx[1]]) / N)
             C = (C.T + C) / (jnp.ones((N,N))+jnp.eye(N))
 
             variances, modes, coeffs = self.compute_dual(C, v)
         else:
             # setup covariance operator
+            v = jax.vmap(mfd.metric.flat, in_axes=(None, 0))(mu, v)
             v_vec = v.reshape(N, -1)
             C = 1/N * v_vec.T @ v_vec
 
