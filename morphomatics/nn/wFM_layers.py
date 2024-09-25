@@ -5,7 +5,7 @@
 #                                                                              #
 #   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
-#   Morphomatics is distributed under the terms of the ZIB Academic License.   #
+#   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
@@ -14,49 +14,45 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-import haiku as hk
+from typing import Callable
+
+import flax.linen as nn
 
 from morphomatics.manifold import Manifold
 
 
-class MfdFC(hk.Module):
+class MfdFC(nn.Module):
     """
     Fully connected layer for manifold-valued features as proposed in
     R. Chakraborty; J. Bouza; J. H. Manton; B. C. Vemuri. "Manifoldnet: A deep neural network for manifold-valued data
     with applications." IEEE Transactions on Pattern Analysis and Machine Intelligence (2020)
 
     Weighted Fréchet means are used to generalize linear combinations.
+
+    :param M: Manifold input signal takes values in
+    :param out_channel: number of output feature channels
     """
 
-    def __init__(self, M: Manifold, out_channel: int, name=None):
-        """
-        :param M: Manifold input signal takes values in
-        :param out_channel: number of output feature channels
-        """
+    M: Manifold
+    out_channel: int
 
-        super().__init__(name=type(self).__name__ if name is None else name)
-        self.M = M
-        self.out_channel = out_channel
-
-    def __call__(self, x, w=None):
+    @nn.compact
+    def __call__(self, x):
         """
         Apply fully connected layer.
         :param x: input sequence with shape: batch * sequence_length * in_channel * M.point_shape
             (M being the underlying manifold)
-        :param w: weights for the Fréchet means of shape n_in, n_out
         :return: output with shape: batch * sequence_length * out_channel * M.point_shape
         """
         n_in, n_out = x.shape[2], self.out_channel
         out_shape = x.shape[:2] + (n_out,) + x.shape[3:]
 
-        if w is None:
-            # init parameter
-            w_init = hk.initializers.TruncatedNormal(mean=-np.log(n_in))
 
-            w = hk.get_parameter("w", shape=(n_in, n_out), dtype=x.dtype, init=w_init)
+        w_init: Callable = nn.initializers.truncated_normal(stddev=1)
+        w = self.param("w", w_init, (n_in, n_out), x.dtype)
 
         # map to positive weights that sum to 1
-        w = jnp.exp(w)
+        w = jnp.exp(w - np.log(n_in))
 
         # weights sum to 1
         w = w / w.sum(axis=0)[None]
@@ -71,26 +67,23 @@ class MfdFC(hk.Module):
         return y.reshape(out_shape)
 
 
-class MfdInvariant(hk.Module):
+class MfdInvariant(nn.Module):
     """
     Last invariant layer as proposed in
     R. Chakraborty; J. Bouza; J. H. Manton; B. C. Vemuri. "Manifoldnet: A deep neural network for manifold-valued data
     with applications." IEEE Transactions on Pattern Analysis and Machine Intelligence (2020).
+
+    :param M: Manifold input signal takes values in
+    :param out_channel: number of output feature channels
+    :param nC: number of weighted means to which distances are employed
     """
 
-    def __init__(self, M: Manifold, out_channel: int, nC: int = 1, with_bias=True, name=None):
-        """
-        :param M: Manifold input signal takes values in
-        :param out_channel: number of output feature channels
-        :param nC: number of weighted means to which distances are employed
-        """
+    M: Manifold
+    out_channel: int
+    nC: int = 1
+    with_bias = True
 
-        super().__init__(name=type(self).__name__ if name is None else name)
-
-        self.M: Manifold = M
-        self.MfdFC = MfdFC(M, nC)
-        self.FC = hk.Linear(out_channel, with_bias=with_bias)
-
+    @nn.compact
     def __call__(self, x):
         """
         Apply fully connected layer.
@@ -102,7 +95,7 @@ class MfdInvariant(hk.Module):
         nBatch, L, *_ = x.shape
 
         # compute means
-        y = self.MfdFC(x)
+        y = MfdFC(self.M, self.nC)(x)
 
         # flatten first two axes -> shape: (batch * sequence_length) * #channels * M.point_shape
         x = x.reshape((-1,) + x.shape[2:])
@@ -116,7 +109,7 @@ class MfdInvariant(hk.Module):
         # reshape to batch * sequence_length * (#channels_x * #channels_y)
         d = d.reshape(nBatch, L, -1)
 
-        return self.FC(d)
+        return nn.Dense(self.out_channel)(d)
 
 
 def wFM(x: jnp.array, w: jnp.array, M: Manifold):

@@ -5,7 +5,7 @@
 #                                                                              #
 #   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
-#   Morphomatics is distributed under the terms of the ZIB Academic License.   #
+#   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################

@@ -3,14 +3,19 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2023 Zuse Institute Berlin                                   #
+#   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
-#   Morphomatics is distributed under the terms of the ZIB Academic License.   #
+#   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
 
 from setuptools import setup
+
+# read the contents of your README file
+from pathlib import Path
+this_directory = Path(__file__).parent
+long_description = (this_directory / "README.md").read_text()
 
 setup(
   name = 'morphomatics',
@@ -21,10 +26,12 @@ setup(
               'morphomatics.nn',
               'morphomatics.opt',
               'morphomatics.stats'],
-  version = '4.0.dev0',
+  version = '4.0',
   version_name = 'Trained Tiberius',
-  license='ZIB Academic License',
+  license='MIT License',
   description = 'Geometric morphometrics in non-Euclidean shape spaces',
+  long_description=long_description,
+  long_description_content_type='text/markdown',
   author = 'Christoph von Tycowicz et al.',
   author_email = 'vontycowicz@zib.de',
   url = 'https://morphomatics.github.io/',
@@ -33,7 +40,7 @@ setup(
           'jax>=0.4.25',
           'jaxlib>=0.4.25',
           'jraph',
-          'dm-haiku',
+          'flax',
           'optax'
       ],
   extras_require = {'all': ['pymanopt>=2.0.1']},
@@ -41,7 +48,7 @@ setup(
     'Development Status :: 4 - Beta',
     'Intended Audience :: Developers',
     'Topic :: Software Development :: Build Tools',
-    'License :: ZIB Academic License',
+    'License :: MIT License',
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',

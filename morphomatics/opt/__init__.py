@@ -5,10 +5,10 @@
 #                                                                              #
 #   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
-#   Morphomatics is distributed under the terms of the ZIB Academic License.   #
+#   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
 
-from .RiemannianSteepestDescent import RiemannianSteepestDescent
-from .RiemannianNewtonRaphson import RiemannianNewtonRaphson
+from .riemannian_steepest_descent import RiemannianSteepestDescent
+from .riemannian_newton_raphson import RiemannianNewtonRaphson

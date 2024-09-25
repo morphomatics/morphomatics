@@ -5,12 +5,12 @@
 #                                                                              #
 #   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
-#   Morphomatics is distributed under the terms of the ZIB Academic License.   #
+#   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
 
-from typing import NamedTuple
+from typing import NamedTuple, Dict
 
 import jax.numpy as jnp
 import jax.ops
@@ -18,25 +18,29 @@ import jax.ops
 from functools import partial
 
 import jraph
-import haiku as hk
+import flax.linen as nn
 import optax
 
 
 class TrainingState(NamedTuple):
-    params: hk.Params
-    avg_params: hk.Params
+    params: Dict
+    avg_params: Dict
     opt_state: optax.OptState
 
 
-def weighted_cross_entropy_loss(params: hk.Params, graph: jraph.GraphsTuple, label: jnp.ndarray, network: hk.Transformed,
-                                rn_key: jax.random.PRNGKey, mask: jnp.array, weights: jnp.array = None) -> jnp.ndarray:
+def weighted_cross_entropy_loss(params: Dict,
+                                graph: jraph.GraphsTuple,
+                                label: jnp.ndarray,
+                                network: nn.Module,
+                                mask: jnp.array,
+                                weights: jnp.array = None
+                                ) -> jnp.ndarray:
     """Weighted cross-entropy classification loss
 
     :param params: network parameters
     :param graph: graph, possibly batched, on which the loss is to be evaluated
     :param label: ground truth labels
     :param network: graph neural network
-    :param rn_key: random number key
     :param mask: binary mask to mask dummy graphs from batching (use jraph's get_graph_padding_mask if applicable)
     :param weights: class weights (all one by default)
     :return: scalar loss
@@ -46,7 +50,7 @@ def weighted_cross_entropy_loss(params: hk.Params, graph: jraph.GraphsTuple, lab
 
     """
 
-    logits = network.apply(params, rn_key, graph)
+    logits = network.apply(params, graph)
     NUM_CLASSES = logits.shape[-1]
     one_hot = jax.nn.one_hot(label, NUM_CLASSES) * mask[:, None]
 
@@ -63,8 +67,12 @@ def weighted_cross_entropy_loss(params: hk.Params, graph: jraph.GraphsTuple, lab
 
 
 @partial(jax.jit, static_argnames=['num_classes'])
-def confusion_matrix(predictions: jnp.array, results: jnp.array, num_classes: int, labels: jnp.array,
-                     mask: jnp.array) -> jnp.array:
+def confusion_matrix(predictions: jnp.array,
+                     results: jnp.array,
+                     num_classes: int,
+                     labels: jnp.array,
+                     mask: jnp.array
+                     ) -> jnp.array:
     """Encodes true positives (TP), false positives (FP), and false negatives (FN) of a multi-class classification in a
     matrix
 
@@ -98,7 +106,11 @@ def confusion_matrix(predictions: jnp.array, results: jnp.array, num_classes: in
 
 
 @partial(jax.jit, static_argnames=['num_classes', 'network'])
-def evaluate(params: hk.Params, graph: jraph.GraphsTuple, labels: jnp.ndarray, num_classes: int, network: hk.Transformed,
+def evaluate(params: Dict,
+             graph: jraph.GraphsTuple,
+             labels: jnp.ndarray,
+             num_classes: int,
+             network: nn.Module,
              rn_key: jax.random.PRNGKey, mask: jnp.ndarray) -> jnp.ndarray:
     """Evaluation metric: classification accuracy
 
@@ -120,8 +132,13 @@ def evaluate(params: hk.Params, graph: jraph.GraphsTuple, labels: jnp.ndarray, n
 
 
 @partial(jax.jit, static_argnames=['num_classes', 'network'])
-def evaluate_F1(params: hk.Params, graph: jraph.GraphsTuple, labels: jnp.ndarray, num_classes: int,
-                network: hk.Transformed, rn_key: jax.random.PRNGKey, mask: jnp.ndarray) -> jnp.ndarray:
+def evaluate_F1(params: Dict,
+                graph: jraph.GraphsTuple,
+                labels: jnp.ndarray,
+                num_classes: int,
+                network: nn.Module,
+                mask: jnp.ndarray
+                ) -> jnp.ndarray:
     """Evaluation metric: F1 score for classification
 
     :param params: network parameters
@@ -129,12 +146,11 @@ def evaluate_F1(params: hk.Params, graph: jraph.GraphsTuple, labels: jnp.ndarray
     :param labels: ground truth labels
     :param num_classes: only needed for consistency with F1 score
     :param network: graph neural network
-    :param rn_key: random number key
     :param mask: binary mask to mask dummy graphs from batching
     :return: score in [0,1]
     """
 
-    logits = network.apply(params, rn_key, graph)
+    logits = network.apply(params, graph)
     predictions = jnp.argmax(logits, axis=-1)
 
     C = confusion_matrix(predictions, (predictions == labels), num_classes, labels, mask)
@@ -151,9 +167,15 @@ def evaluate_F1(params: hk.Params, graph: jraph.GraphsTuple, labels: jnp.ndarray
 
 
 @partial(jax.jit, static_argnames=['optimizer', 'network', 'verbosity'])
-def update(state: TrainingState, graph: jraph.GraphsTuple, label: jnp.ndarray, optimizer: optax.GradientTransformation,
-           network: hk.Transformed, rn_key: jax.random.PRNGKey, mask: jnp.ndarray, weights: jnp.ndarray = None,
-           verbosity: int = 0) -> TrainingState:
+def update(state: TrainingState,
+           graph: jraph.GraphsTuple,
+           label: jnp.ndarray,
+           optimizer: optax.GradientTransformation,
+           network: nn.Module,
+           mask: jnp.ndarray,
+           weights: jnp.ndarray = None,
+           verbosity: int = 0
+           ) -> TrainingState:
     """Learning rule (stochastic gradient descent)
 
     :param state: current training state
@@ -161,14 +183,12 @@ def update(state: TrainingState, graph: jraph.GraphsTuple, label: jnp.ndarray, o
     :param label: ground truth labels
     :param optimizer: optimizer function (e.g., optax adam)
     :param network: graph neural network
-    :param rn_key: random number key
     :param mask: binary mask to mask dummy graphs from batching (use jraph's get_graph_padding_mask if applicable)
     :param weights: class weights (all one by default)
     :param verbosity: verbosity level between 0 and 2
     :return: updated training state
     """
-    value, grads = jax.value_and_grad(weighted_cross_entropy_loss)(state.params, graph, label, network, rn_key, mask,
-                                                                   weights)
+    value, grads = jax.value_and_grad(weighted_cross_entropy_loss)(state.params, graph, label, network, mask, weights)
     updates, opt_state = optimizer.update(grads, state.opt_state, state.params)
 
     if verbosity > 0:

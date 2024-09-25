@@ -5,15 +5,14 @@
 #                                                                              #
 #   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
-#   Morphomatics is distributed under the terms of the ZIB Academic License.   #
+#   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
 
-
-from .ExponentialBarycenter import ExponentialBarycenter
-from .GeometricMedian import GeometricMedian
-from .PrincipalGeodesicAnalysis import PrincipalGeodesicAnalysis
-from .StatisticalShapeModel import StatisticalShapeModel
-from .RiemannianRegression import RiemannianRegression
-from .BiinvariantStatistics import BiinvariantStatistics
+from .exponential_barycenter import ExponentialBarycenter
+from .geometric_median import GeometricMedian
+from .principal_geodesic_analysis import PrincipalGeodesicAnalysis
+from .statistical_shape_model import StatisticalShapeModel
+from .riemannian_regression import RiemannianRegression
+from .biinvariant_statistics import BiinvariantStatistics

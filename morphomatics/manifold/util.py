@@ -5,7 +5,7 @@
 #                                                                              #
 #   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
-#   Morphomatics is distributed under the terms of the ZIB Academic License.   #
+#   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
@@ -32,7 +32,7 @@ def align(src, ref):
     U, S, Vt = jnp.linalg.svd(xCov)
     R = Vt.T @ U.T
     if jnp.linalg.det(R) < 0:
-        R = Vt.T @ jnp.diag([1, 1, -1]) @ U.T
+        R = Vt.T @ np.diag([1, 1, -1]) @ U.T
     # return aligned coords.
     return src @ R + (c_r - c_s @ R)
 

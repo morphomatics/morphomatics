@@ -18,9 +18,10 @@ pip install git+https://github.com/morphomatics/morphomatics.git#egg=morphomatic
 For instructions on how to set up `jaxlib`, please refer to the [JAX install guide](https://github.com/google/jax#installation).
 
 ## Dependencies
-* numpy
-* scipy
 * jax/jaxlib
+* jraph
+* flax
+* optax
 
 Optional
 * pymanopt

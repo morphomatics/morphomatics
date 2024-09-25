@@ -5,7 +5,7 @@
 #                                                                              #
 #   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
-#   Morphomatics is distributed under the terms of the ZIB Academic License.   #
+#   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
@@ -16,28 +16,25 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-import haiku as hk
+import flax.linen as nn
 
 from morphomatics.manifold import Manifold
 
 
-class TangentMLP(hk.Module):
+class TangentMLP(nn.Module):
     """
     Generalized multi-layer perceptron for manifold-valued features as proposed in
     M. Hanik, G, Steidl, C. v. Tycowicz. "Manifold GCN: Diffusion-based Convolutional Neural Network for
     Manifold-valued Graphs" (https://arxiv.org/abs/2401.14381).
+
+    :param M: Manifold input signal takes values in
+    :param out_sizes: number of output feature channels (sequence thereof)
     """
 
-    def __init__(self, M: Manifold, out_sizes: Sequence[int], name=None):
-        """
-        :param M: Manifold input signal takes values in
-        :param out_sizes: number of output feature channels (sequence thereof)
-        """
+    M: Manifold
+    out_sizes: Sequence[int]
 
-        super().__init__(name=type(self).__name__ if name is None else name)
-        self._M = M
-        self.mlp = VectorNeuronMLP(out_sizes)
-
+    @nn.compact
     def __call__(self, x):
         """
         Apply tangent MLP layer.
@@ -52,46 +49,44 @@ class TangentMLP(hk.Module):
         x = x.reshape(-1, n_in, *pt_shape)
 
         # compute logs -> tangent vectors
-        pernode = jax.vmap(self._M.connec.log, in_axes=(None, 0))
+        pernode = jax.vmap(self.M.connec.log, in_axes=(None, 0))
         v = jax.vmap(pernode)(x[:, 0], x[:, 1:])
 
         # shape into vectors
         v = v.reshape(n_batch, n_seq, n_in-1, -1)
 
         # apply vector neuron MLP
-        v = self.mlp(v)
+        v = VectorNeuronMLP(self.out_sizes)(v)
 
         # shape back into tangent vectors
         v = v.reshape(n_batch * n_seq, -1, *pt_shape)
 
         # map back to manifold
-        pernode = jax.vmap(self._M.connec.exp, in_axes=(None, 0))
+        pernode = jax.vmap(self.M.connec.exp, in_axes=(None, 0))
         y = jax.vmap(pernode)(x[:, 0], v)
 
         return y.reshape(n_batch, n_seq, -1, *pt_shape)
 
 
-class TangentInvariant(hk.Module):
+class TangentInvariant(nn.Module):
     """
     Invariant layer for manifold-valued features extending the TangentMLP layer.
     Specifically, computes inner products of the input (linearized via Log) with
      a set of tangent vectors obtained from them (using TangentMLP).
      Finally, the products are passed through a fully connected layer to match desired output size.
+
+    :param M: Manifold input signal takes values in
+    :param out_channel: number of output feature channels
+    :param vec_sizes: sequence of widths for TangentMLP
+    :param use_bias: whether to use bias in the final fully connected layer
     """
 
-    def __init__(self, M: Manifold, out_channel: int, vec_sizes: Sequence[int] = [3,], with_bias=True, name=None):
-        """
-        :param M: Manifold input signal takes values in
-        :param out_channel: number of output feature channels
-        :param vec_sizes: sequence of widths for TangentMLP
-        :param with_bias: whether to use bias in the final fully connected layer
-        """
+    M: Manifold
+    out_channel: int
+    vec_sizes: Sequence[int] = (3,)
+    use_bias: bool = True
 
-        super().__init__(name=type(self).__name__ if name is None else name)
-        self._M = M
-        self.mlp = VectorNeuronMLP(vec_sizes)
-        self.FC = hk.Linear(out_channel, with_bias=with_bias)
-
+    @nn.compact
     def __call__(self, x):
         """
         Apply tangent MLP layer.
@@ -106,20 +101,20 @@ class TangentInvariant(hk.Module):
         x = x.reshape(-1, n_in, *pt_shape)
 
         # compute logs -> tangent vectors
-        log_batched = jax.vmap(self._M.connec.log, in_axes=(None, 0))
+        log_batched = jax.vmap(self.M.connec.log, in_axes=(None, 0))
         v = jax.vmap(log_batched)(x[:, 0], x[:, 1:])
 
         # shape into vectors
         w = v.reshape(n_batch, n_seq, n_in-1, -1)
 
         # apply vector neuron MLP
-        w = self.mlp(w)
+        w = VectorNeuronMLP(self.vec_sizes)(w)
 
         # shape back into tangent vectors
         w = w.reshape(n_batch * n_seq, -1, *pt_shape)
 
         # lower indices of tangent vectors (either v or w)
-        flat_batched = jax.vmap(self._M.metric.flat, in_axes=(None, 0))
+        flat_batched = jax.vmap(self.M.metric.flat, in_axes=(None, 0))
         if w.shape[1] > n_in:
             v = jax.vmap(flat_batched)(x[:, 0], v)
         else:
@@ -127,26 +122,24 @@ class TangentInvariant(hk.Module):
         # compute inner products
         y = jnp.einsum('...ij,...kj', v.reshape(*v.shape[:2], -1), w.reshape(*w.shape[:2], -1))
 
-        return self.FC(y.reshape(n_batch, n_seq, -1))
+        f = nn.Dense(self.out_channel, use_bias=self.use_bias)
+        return f(y.reshape(n_batch, n_seq, -1))
 
 
-class VectorNeuronMLP(hk.Module):
+class VectorNeuronMLP(nn.Module):
     """
     Vector Neuron MLP layer as described in
     Deng, C., Litany, O., Duan, Y., Poulenard, A., Tagliasacchi, A., & Guibas, L. J. (2021).
     Vector neurons: A general framework for SO(3)-equivariant networks.
     In Proceedings of the IEEE/CVF International Conference on Computer Vision (pp. 12200-12209).
+
+    :param output_sizes: sequence (length: m+1) of layer widths
     """
 
-    def __init__(self, output_sizes: Sequence[int], negative_slope: float = 0.2, name=None):
-        """
-        :param output_sizes: sequence (length: m+1) of layer widths
-        :param name: layer name (see haiku documentation)
-        """
-        super().__init__(name=type(self).__name__ if name is None else name)
-        self.output_sizes = output_sizes
-        self.negative_slope = negative_slope
+    output_sizes: Sequence[int]
+    negative_slope: float = 0.2
 
+    @nn.compact
     def __call__(self, x: jnp.array):
         """
         Apply layer.
@@ -159,10 +152,12 @@ class VectorNeuronMLP(hk.Module):
         # apply layers
         for i, n_out in enumerate(self.output_sizes):
             # initialize weights
-            u_init = hk.initializers.TruncatedNormal(stddev=np.sqrt(2/n_in))
-            w_init = hk.initializers.TruncatedNormal(mean=1. / n_in, stddev=1. / np.sqrt(n_in))
-            U = hk.get_parameter(f"U_{i}", [n_out, n_in], dtype=x.dtype, init=u_init)
-            W = hk.get_parameter(f"W_{i}", [n_out, n_in], dtype=x.dtype, init=w_init)
+            u_init = nn.initializers.truncated_normal(stddev=np.sqrt(2/n_in))
+            w_init = lambda *args: nn.initializers.truncated_normal(stddev=1. / np.sqrt(n_in))(*args) + 1. / n_in
+
+            U = self.param(f"U_{i}", u_init, (n_out, n_in), x.dtype)
+            W = self.param(f"W_{i}", w_init, (n_out, n_in), x.dtype)
+
             n_in = n_out
 
             # compute direction k (and its squared norm)

@@ -5,39 +5,42 @@
 #                                                                              #
 #   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
-#   Morphomatics is distributed under the terms of the ZIB Academic License.   #
+#   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
 
 # Abstract classes for manifolds
-from .Manifold import Manifold
-from .LieGroup import LieGroup
-from .Connection import Connection
-from .Metric import Metric
+from .lie_group import LieGroup
+from .connection import Connection
+from .metric import Metric
+from .manifold import Manifold
+
+from. power_manifold import PowerManifold
+from. product_manifold import ProductManifold
 
 # Standard manifolds
-from .Euclidean import Euclidean
-from .GLpn import GLpn
-from .SO3 import SO3
-from .SE3 import SE3
-from .SPD import SPD
-from .Sphere import Sphere
-from .HyperbolicSpace import HyperbolicSpace
-from .TangentBundle import TangentBundle
-from. PowerManifold import PowerManifold
+from .euclidean import Euclidean
+from .gl_p_n import GLpn
+from .so_3 import SO3
+from .se_3 import SE3
+from .spd import SPD
+from .sphere import Sphere
+from .hyperbolic_space import HyperbolicSpace
+from .grassmann import Grassmann
+from .tangent_bundle import TangentBundle
 
 # PyManopt Wrapper for manifolds
-from .ManoptWrap import ManoptWrap
+from .manopt_wrapper import ManoptWrap
 
 # Shape spaces
-from .ShapeSpace import ShapeSpace
-from .FundamentalCoords import FundamentalCoords
-from .DifferentialCoords import DifferentialCoords
-from .PointDistributionModel import PointDistributionModel
-from .GLpCoords import GLpCoords
-from .Kendall import Kendall
+from .shape_space import ShapeSpace
+from .fundamental_coords import FundamentalCoords
+from .differential_coords import DifferentialCoords
+from .point_distribution_model import PointDistributionModel
+from .gl_p_coords import GLpCoords
+from .kendall import Kendall
 
 # Space of shape trajectories
-from .Bezierfold import Bezierfold
-from .CubicBezierfold import CubicBezierfold
+from .bezierfold import Bezierfold
+from .cubic_bezierfold import CubicBezierfold

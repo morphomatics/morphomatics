@@ -5,7 +5,7 @@
 #                                                                              #
 #   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
-#   Morphomatics is distributed under the terms of the ZIB Academic License.   #
+#   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
@@ -13,4 +13,4 @@
 from .misc import memoize, gradient_matrix_ambient
 
 from .surface import Surface
-from .BezierSpline import BezierSpline
+from .bezier_spline import BezierSpline

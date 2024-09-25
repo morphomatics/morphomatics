@@ -5,7 +5,7 @@
 #                                                                              #
 #   Copyright (C) 2024 Zuse Institute Berlin                                   #
 #                                                                              #
-#   Morphomatics is distributed under the terms of the ZIB Academic License.   #
+#   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
@@ -31,7 +31,7 @@ class Surface(object):
         self._cache_f = dict()
 
         self.v = np.asarray(v).astype(np.double, copy=False)
-        self.f = f
+        self.f = np.asarray(f)
 
     @property
     def v(self):
