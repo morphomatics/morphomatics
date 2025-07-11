@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -22,7 +22,7 @@ except:
     from scipy.sparse.linalg import factorized as direct_solve
 
 from ..geom import Surface
-from . import GLpn
+from . import GLpn, PowerManifold
 from . import ShapeSpace
 from .util import align
 
@@ -47,7 +47,7 @@ class GLpCoords(ShapeSpace):
 
         self.update_ref_geom(self.ref.v)
 
-        self.GLp = GLpn(k, structure='AffineGroup')
+        self.GLp = PowerManifold(GLpn(3), k)
 
         name = 'Shape Space based on the orientation preserving component of the general linear group'
         super().__init__(name, self.GLp.dim, self.GLp.point_shape, self.GLp.connec, None, self.GLp.group)
@@ -144,6 +144,3 @@ class GLpCoords(ShapeSpace):
 
     def proj(self, p, X):
         return X
-
-    def geopoint(self, A, B, t):
-        return self.GLp.connec.geopoint(A, B, t)

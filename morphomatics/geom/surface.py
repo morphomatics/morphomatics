@@ -3,19 +3,16 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
 
-
 import numpy as np
 from scipy import sparse
-
-from .misc import memoize, gradient_matrix_ambient
-
+from . import memoize, gradient_matrix_ambient
 
 
 class Surface(object):
@@ -54,6 +51,19 @@ class Surface(object):
 
     @property
     @memoize('_cache_v')
+    def mass_matrix(self):
+        n = len(self.v)
+        faces = self.f
+        face_areas = self.face_areas
+        Me1 = sparse.csr_matrix((face_areas / 12, (faces[:, 1], faces[:, 2])), (n, n))
+        Me2 = sparse.csr_matrix((face_areas / 12, (faces[:, 2], faces[:, 0])), (n, n))
+        Me3 = sparse.csr_matrix((face_areas / 12, (faces[:, 0], faces[:, 1])), (n, n))
+        ind = np.hstack(faces.T)
+        Mii = sparse.csr_matrix((np.concatenate((face_areas, face_areas, face_areas)) / 6, (ind, ind)), (n, n))
+        return Me1 + Me1.T + Me2 + Me2.T + Me3 + Me3.T + Mii
+
+    @property
+    @memoize('_cache_v')
     def grad(self):
         """ Gradient of a scalar function defined on piecewise linear elements
         (see: geom.misc.gradient_matrix_ambient) """
@@ -64,19 +74,23 @@ class Surface(object):
     def div(self):
         """Divergence operator"""
         mass = self.face_areas
-        d = self.grad.shape[0] / len(mass) # ambient dim.
-        return self.grad.T @ sparse.diags(np.repeat(mass, d), 0)
+        d = self.grad.shape[0] / len(mass)  # ambient dim.
+        return self.grad.T @ sparse.diags(np.repeat(mass, d))
 
     @property
-    @memoize('_cache_v')
+    def vertex_areas_barycentric(self):
+        n = self.v.shape[0]
+        ind = np.hstack(self.f.T)
+        return sparse.csr_matrix((np.tile(self.face_areas, 3) / 3, (ind, ind)), (n, n)).data
+
+    @property
+    @memoize('_cache_f')
     def face_areas(self):
         """Area of triangles."""
-        # Compute cross-product of edges
-        ppts = self.v[self.f]
-        nnfnorms = np.cross(ppts[:, 1] - ppts[:, 0],
-                            ppts[:, 2] - ppts[:, 0])
-        # Compute vector length
-        return np.sqrt((nnfnorms ** 2).sum(-1)) / 2
+        d = self.f.shape[1] - 1
+        E = [self.v[self.f[:, i]] - self.v[self.f[:, d]] for i in range(d)]
+        metric = np.matmul(np.stack(E, axis=1), np.stack(E, axis=2))
+        return np.sqrt(np.linalg.det(metric)) / 2
 
     @property
     @memoize('_cache_f')

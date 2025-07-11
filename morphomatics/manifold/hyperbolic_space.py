@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -140,13 +140,6 @@ class HyperbolicSpace(Manifold):
         def egrad2rgrad(self, p, H):
             H = H.at[-1].set(-H[-1])
             return self._M.proj(p, H)
-
-        def ehess2rhess(self, p, G, H, X):
-            """Converts the Euclidean gradient P_G and Hessian H of a function at
-            a point p along a tangent vector X to the Riemannian Hessian
-            along X on the manifold.
-            """
-            raise NotImplementedError('This function has not been implemented yet.')
 
         def exp(self, p, X):
             # numerical safeguard

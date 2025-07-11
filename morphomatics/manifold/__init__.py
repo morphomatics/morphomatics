@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -28,6 +28,7 @@ from .spd import SPD
 from .sphere import Sphere
 from .hyperbolic_space import HyperbolicSpace
 from .grassmann import Grassmann
+from .simplex import Simplex
 from .tangent_bundle import TangentBundle
 
 # PyManopt Wrapper for manifolds
@@ -40,6 +41,8 @@ from .differential_coords import DifferentialCoords
 from .point_distribution_model import PointDistributionModel
 from .gl_p_coords import GLpCoords
 from .kendall import Kendall
+from .size_and_shape import SizeAndShape
+from .diffeomorphism import Diffeomorphism
 
 # Space of shape trajectories
 from .bezierfold import Bezierfold

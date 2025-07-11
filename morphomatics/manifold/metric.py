@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -52,13 +52,6 @@ class Metric(Connection):
         space of the manifold at p.
         """
 
-    @abc.abstractmethod
-    def ehess2rhess(self, p, G, H, X):
-        """Converts the Euclidean gradient P_G and Hessian H of a function at
-        a point p along a tangent vector X to the Riemannian Hessian
-        along X on the manifold.
-        """
-
     def norm(self, p, X):
         """Computes the norm of a tangent vector X in the tangent space at
         p.
@@ -96,6 +89,39 @@ class Metric(Connection):
         """
 
         return self.adjJacobi(q, p, 1 - t, X)
+
+    def projToGeodesic(self, X, Y, P, max_iter=10):
+        '''
+        Project P onto geodesic from X to Y.
+
+        See:
+        Felix Ambellan, Stefan Zachow, Christoph von Tycowicz.
+        Geodesic B-Score for Improved Assessment of Knee Osteoarthritis.
+        Proc. Information Processing in Medical Imaging (IPMI), LNCS, 2021.
+
+        :arg X, Y: manifold coords defining geodesic X->Y.
+        :arg P: manifold coords to be projected to X->Y.
+        :returns: manifold coords of projection of P to X->Y
+        '''
+        assert X.shape == Y.shape
+        assert Y.shape == P.shape
+
+        # initial guess
+        Pi = X.copy()
+
+        # solver loop
+        for _ in range(max_iter):
+            v = self.log(Pi, Y)
+            v = v / self.norm(Pi, v)
+            w = self.log(Pi, P)
+            d = self.inner(Pi, v, w)
+
+            # print(f'|<v, w>|={d}')
+            if abs(d) < 1e-6: break
+
+            Pi = self.exp(Pi, d * v)
+
+        return Pi
 
 
 def _eval_adjJacobi_embed(g: Metric, p, q, t, X):

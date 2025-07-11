@@ -16,27 +16,26 @@ from typing import Sequence
 import jax
 import jax.numpy as jnp
 
-from morphomatics.manifold import ShapeSpace, Metric, Sphere
+from morphomatics.manifold import ShapeSpace, Metric, Kendall
 from morphomatics.manifold.discrete_ops import pole_ladder
+from morphomatics.manifold.connection import _eval_jacobi_embed
 
 
-class Kendall(ShapeSpace):
+class SizeAndShape(ShapeSpace):
     """
-    Kendall's shape space: (SO_m)-equivalence classes of preshape points (projection of centered landmarks onto the sphere)
+    Size-and-shape space: (SO_m)-equivalence classes of landmark configurations in R^m.
     """
 
     def __init__(self, shape: Sequence[int], structure='Canonical'):
         if len(shape) == 0:
             raise TypeError("Need shape parameters.")
 
-        # Pre-Shape space (sphere)
-        self._S = Sphere(shape)
         m = shape[-1]
-        dimension = int(self._S.dim - m - m * (m - 1) / 2)
+        dimension = int(np.prod(shape) - m - m * (m - 1) / 2)
 
         self.ref = None
 
-        name = 'Kendall shape space of ' + 'x'.join(map(str, shape[:-1])) + ' Landmarks in R^' + str(m)
+        name = 'Size-and-shape space of ' + 'x'.join(map(str, shape[:-1])) + ' Landmarks in R^' + str(shape[-1])
         super().__init__(name, dimension, shape)
         if structure:
             getattr(self, f'init{structure}Structure')()
@@ -61,7 +60,7 @@ class Kendall(ShapeSpace):
         :arg v: array of landmark coordinates
         :return: manifold coordinates
         '''
-        return Kendall.project(v)
+        return SizeAndShape.project(v)
 
     def from_coords(self, c):
         '''
@@ -77,47 +76,14 @@ class Kendall(ShapeSpace):
 
     def rand(self, key: jax.Array):
         p = jax.random.normal(key, self.point_shape)
-        return Kendall.project(p)
+        return SizeAndShape.project(p)
 
     def randvec(self, p, key: jax.Array):
         v = jax.random.normal(key, self.point_shape)
-        return Kendall.horizontal(p, self._S.proj(p, v))
+        return SizeAndShape.horizontal(p, v)
 
     def zerovec(self):
         return jnp.zeros(self.point_shape)
-
-    @staticmethod
-    def wellpos(x, y):
-        """
-        Rotate y such that it aligns to x.
-        :param x: (centered) reference landmark configuration.
-        :param y: (centered) landmarks to be aligned.
-        :returns: y well-positioned to x.
-        """
-        return y @ Kendall.opt_rot(x, y)
-
-    @staticmethod
-    def opt_rot(x, y):
-        """
-        Rotate y such that it aligns to x.
-        :param x: (centered) reference landmark configuration.
-        :param y: (centered) landmarks to be aligned.
-        :returns: rotation R such that y*R is well-positioned to x.
-        """
-        m = x.shape[-1]
-        sigma = jnp.ones(m)
-        # full_matrices=False equals full_matrices=True for quadratic input but allows for auto diff
-        u, _, v = jnp.linalg.svd(x.reshape(-1, m).T @ y.reshape(-1, m), full_matrices=False)
-        sigma = sigma.at[-1].set(jnp.sign(jnp.linalg.det(u @ v)))
-        return jnp.einsum('ji,j,kj', v, sigma, u)
-
-    @staticmethod
-    def center(x):
-        """
-        Remove mean from x.
-        """
-        mean = x.reshape(-1, x.shape[-1]).mean(axis=0)
-        return x - mean
 
     @staticmethod
     def project(x):
@@ -126,12 +92,11 @@ class Kendall(ShapeSpace):
         : param x: Point to project.
         :returns: Projected x.
         """
-        x = Kendall.center(x)
-        return x / jnp.linalg.norm(x)
+        return Kendall.center(x)
 
     def proj(self, p, X):
         """ Project a vector X from the ambient Euclidean space onto the tangent space at p. """
-        return Kendall.horizontal(p, self._S.proj(p, X))
+        return SizeAndShape.horizontal(p, X)
 
     @staticmethod
     def vertical(p, X):
@@ -140,27 +105,20 @@ class Kendall(ShapeSpace):
         App^T+pp^TA = Xp^T-pX^T for A. If p has full rank (det(pp^T) > 0), then there exists a unique solution
         A, it is skew-symmetric and Ap is the vertical component of X
         """
-        d = p.shape[-1]
-        S = p.reshape(-1, d).T @ p.reshape(-1, d)
-        rhs = X.reshape(-1, d).T @ p.reshape(-1, d)
-        rhs = rhs.T - rhs
-        S = jnp.kron(jnp.eye(d), S) + jnp.kron(S, jnp.eye(d))
-        A, *_ = jnp.linalg.lstsq(S, rhs.reshape(-1))
-        return jnp.einsum('...i,ij', p, A.reshape(d, d))
+        return Kendall.vertical(p, X)
 
     @staticmethod
     def horizontal(p, X):
         """
         compute horizontal component of X.
         """
-        X = Kendall.center(X)
-        return X - Kendall.vertical(p, X)
+        return Kendall.horizontal(p, X)
 
     def initCanonicalStructure(self):
         """
         Instantiate the preshape sphere with canonical structure.
         """
-        structure = Kendall.CanonicalStructure(self)
+        structure = SizeAndShape.CanonicalStructure(self)
         self._metric = structure
         self._connec = structure
 
@@ -173,8 +131,8 @@ class Kendall(ShapeSpace):
             """
             Constructor.
             """
+            super().__init__(M)
             self._M = M
-            self._S = M._S
 
         def __str__(self):
             return "canonical structure"
@@ -184,30 +142,30 @@ class Kendall(ShapeSpace):
             return np.pi/2
 
         def inner(self, p, X, Y):
-            return self._S.metric.inner(p, X, Y)
+            return (X * Y).sum()
 
         def norm(self, p, X):
-            return self._S.metric.norm(p, X)
+            return jnp.sqrt(self.inner(p, X, X))
 
         def flat(self, p, X):
             """Lower vector X at p with the metric"""
-            return self._S.metric.flat(p, X)
+            return X
 
         def sharp(self, p, dX):
             """Raise covector dX at p with the metric"""
-            return self._S.metric.sharp(p, dX)
+            return dX
 
         def egrad2rgrad(self, p, X):
             return self._M.proj(p, X)
 
         def exp(self, p, X):
-            return self._S.connec.exp(p, X)
+            return p + X
 
         retr = exp
 
         def log(self, p, q):
             q = Kendall.wellpos(p, q)
-            return self._S.connec.log(p, q)
+            return q - p
 
         def curvature_tensor(self, p, X, Y, Z):
             """Evaluates the curvature tensor R of the connection at p on the vectors X, Y, Z. With nabla_X Y denoting
@@ -227,31 +185,15 @@ class Kendall(ShapeSpace):
 
         def dist(self, p, q):
             q = Kendall.wellpos(p, q)
-            return self._S.metric.dist(p, q)
+            return self.norm(p, self.log(p, q))
 
         def squared_dist(self, p, q):
-            q = Kendall.wellpos(p, q)
-            return self._S.metric.squared_dist(p, q)
+            v = self.log(p, q)
+            return self.inner(p, v, v)
 
         def jacobiField(self, p, q, t, X):
-            # return self.proj(*super().jacobiField(p, q, t, X))
-
-            # q = Kendall.wellpos(p, q)
-            # phi = self._S.metric.dist(p, q)
-            # v = self._S.connec.log(p, q)
-            # gamTS = self._S.connec.exp(p, t * v)
-            #
-            # v = v / self._S.metric.norm(p, v)
-            # Xtan = self._S.metric.inner(p, X, v) * v
-            # Xorth = X - Xtan
-
-            # # tangential component of J: (1-t) * transp(p, gamTS, Xtan)
-            # Jtan = Xtan_norm / phi * self._S.connec.log(gamTS, q)
-            # return gamTS, (np.sin((1 - t) * phi) / np.sin(phi)) * Kendall.horizontal(gamTS, Xorth) + Jtan
-
-            raise NotImplementedError('This function has not been implemented yet.')
+            b, J = _eval_jacobi_embed(self, p, q, t, X)
+            return b, SizeAndShape.horizontal(b, J)
 
         def adjJacobi(self, p, q, t, X):
-            # return self.proj(p, super().adjJacobi(p, q, t, X))
-
             raise NotImplementedError('This function has not been implemented yet.')

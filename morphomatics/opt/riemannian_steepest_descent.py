@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -38,14 +38,15 @@ class RiemannianSteepestDescent(object):
         """
 
         # Gradient
-        grad_ = jax.grad(f)
-        def grad(x):
-            return M.metric.egrad2rgrad(x, grad_(x))
+        vag = jax.value_and_grad(f)
+        def value_and_grad(x):
+            v, g = vag(x)
+            return v, M.metric.egrad2rgrad(x, g)
 
         # optimize
         def body(args):
             x, _, i = args
-            g = grad(x)
+            _, g = value_and_grad(x)
             g_norm = M.metric.norm(x, g)
             # steepest descent
             x = M.connec.exp(x, -stepsize * g)

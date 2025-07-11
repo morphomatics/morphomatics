@@ -3,28 +3,31 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
 
+# postponed evaluation of annotations to circumvent cyclic dependencies (will be default behavior in Python 4.0)
+from __future__ import annotations
+
 import jax.numpy as jnp
 import jax.numpy.linalg as jla
 from jax import random
 
-from morphomatics.manifold import LieGroup
+# from morphomatics.manifold import LieGroup
 from morphomatics.stats import ExponentialBarycenter as Mean
 
 
-class BiinvariantStatistics(object):
+class BiinvariantDissimilarityMeasures(object):
     """
     Methods for bi-invariant statistics on Lie groups; for details see
     Hanik, Hege, and von Tycowicz (2020): Bi-invariant Two-Sample Tests in Lie Groups for Shape Analysis
     """
 
-    def __init__(self, G: LieGroup, variant='left'):
+    def __init__(self, G: Manifold, variant='left'):
         """
         :param G: Lie group
         :param variant: indicate whether all tangent vectors are left (variants='left') or right (variants='right')
@@ -181,7 +184,7 @@ class BiinvariantStatistics(object):
         identity e.
         :param a: element of G
         :param b: element of G
-        :return: group logarithm after translating such that a is mapped e.
+        :return: group logarithm after translating with a^(-1).
         """
         if self.variant == 'left':
             x = self.G.group.log(self.G.group.lefttrans(b, self.G.group.inverse(a)))

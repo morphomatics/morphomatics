@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -219,13 +219,6 @@ class CubicBezierfold(Manifold):
 
         def egrad2rgrad(self, p, X):
             return self._Bf.proj
-
-        def ehess2rhess(self, pu, G, H, vw):
-            """Converts the Euclidean gradient G and Hessian H of a function at
-            a point pv along a tangent vector uw to the Riemannian Hessian
-            along X on the manifold.
-            """
-            raise NotImplementedError('This function has not been implemented yet.')
 
         def exp(self, p_B: jnp.array, v: jnp.array) -> jnp.array:
             """Exponential map

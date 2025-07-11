@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -13,8 +13,9 @@
 import jax
 import jax.numpy as jnp
 from jax.scipy.linalg import expm, funm
+from scipy.linalg import logm as scipy_logm
 
-from morphomatics.manifold import Manifold, LieGroup, Connection
+from morphomatics.manifold import Manifold, LieGroup
 
 
 class GLpn(Manifold):
@@ -28,7 +29,7 @@ class GLpn(Manifold):
      represented as d_gL_{g^(-1)}(X)
      """
 
-    def __init__(self, n=3, structure='AffineGroup'):
+    def __init__(self, n=3, structure='GLGroup'):
         self._n = n
 
         name = 'Orientation preserving maps of R^n'
@@ -72,130 +73,124 @@ class GLpn(Manifold):
     def proj(self, p, X):
         return X
 
-    def initAffineGroupStructure(self):
+    def initGLGroupStructure(self):
         """
         Standard group structure with canonical Cartan Shouten connection.
         """
-        structure = GLpn.AffineGroupStructure(self)
+        structure = GLGroupStructure(self)
         self._connec = structure
         self._group = structure
 
-    class AffineGroupStructure(Connection, LieGroup):
+class GLGroupStructure(LieGroup):
+    """
+    Standard group structure on GL+(n) where the composition of two elements is given by component-wise matrix
+    multiplication. The connection is the corresponding canonical Cartan Shouten (CCS) connection. No Riemannian
+    metric is used.
+    """
+
+    def __init__(self, M: Manifold):
+        """ Construct group.
+        :param M: underlying manifold
         """
-        Standard group structure on GL+(n) where the composition of two elements is given by component-wise matrix
-        multiplication. The connection is the corresponding canonical Cartan Shouten (CCS) connection. No Riemannian
-        metric is used.
+        self._M = M
+
+    def __str__(self):
+        return 'standard group structure on GL+(n) with CCS connection'
+
+    # Group
+
+    @property
+    def identity(self):
+        """Returns the identity element e of the Lie group."""
+        return jnp.eye(self._M.point_shape[-1])
+
+    def bracket(self, X, Y):
+        """Lie bracket in the Lie algebra."""
+        return jnp.einsum('ij,jl->il', X, Y) - jnp.einsum('ij,jl->il', Y, X)
+
+    def coords(self, X):
+        """Coordinate map for the tangent space at the identity."""
+        return jnp.reshape(X, (self._M.point_shape[-1] ** 2, 1))
+
+    def coords_inv(self, x):
+        n = self._M.point_shape[-1]
+        return jnp.reshape(x, (n, n))
+
+    def lefttrans(self, g, f):
+        """Left translation of g by f.
         """
+        return jnp.einsum('ij,jl->il', f, g)
 
-        def __init__(self, M):
-            """
-            Constructor.
-            """
-            self._M = M
+    def righttrans(self, g, f):
+        """Right translation of g by f.
+        """
+        return jnp.einsum('ij,jl->il', g, f)
 
-        def __str__(self):
-            return 'standard group structure on GL+(n) with CCS connection'
+    def inverse(self, g):
+        """Inverse map of the Lie group.
+        """
+        return jnp.linalg.inv(g)
 
-        # Group
+    def exp(self, *argv):
+        """Computes the Lie-theoretic and CCS connection exponential map
+        (depending on signature, i.e. whether a footpoint is given as well)
+        """
+        return jax.lax.cond(len(argv) == 1,
+                            lambda A: A[-1],  # group exp
+                            lambda A: jnp.einsum('ij,jk', A[-1], A[0]),  # exp of CCS connection
+                            (argv[0], expm(argv[-1])))
 
-        @property
-        def identity(self):
-            """Returns the identity element e of the Lie group."""
-            return jnp.eye(self._M.n)
+    retr = exp
 
-        def bracket(self, X, Y):
-            """Lie bracket in Lie algebra."""
-            return jnp.einsum('ij,jl->il', X, Y) - jnp.einsum('ij,jl->il', Y, X)
+    def log(self, *argv):
+        """Computes the Lie-theoretic and CCS connection logarithm map
+        (depending on signature, i.e. whether a footpoint is given as well)
+        """
+        # NOTE: as logm() is not available in jax; funm() is CPU only (and rather unstable)
+        # logm = lambda m: jnp.real(funm(m, jnp.log))
+        return logm(jax.lax.cond(len(argv) == 1,
+                                 lambda A: A[-1],
+                                 lambda A: jnp.einsum('ij,jk', A[-1], self.inverse(A[0])),
+                                 argv))
 
-        def coords(self, X):
-            """Coordinate map for the tangent space at the identity."""
-            return jnp.reshape(X, (self._M.n ** 2, 1))
+    def adjrep(self, g, X):
+        """Adjoint representation of g applied to the tangent vector X at the identity.
+        """
+        return jnp.einsum('ij,jl,lm->im', g, X, self.inverse(g))
 
-        def coords_inverse(self, X):
-            raise NotImplementedError('This function has not been implemented yet.')
+    def jacobiField(self, R, Q, t, X):
+        raise NotImplementedError('This function has not been implemented yet.')
 
-        def lefttrans(self, g, f):
-            """Left translation of g by f.
-            """
-            return jnp.einsum('ij,jl->il', f, g)
+@jax.custom_jvp
+def logm(m):
+    """Computes the matrix logarithm of m."""
+    m = jnp.asarray(m)
 
-        def righttrans(self, g, f):
-            """Right translation of g by f.
-            """
-            return jnp.einsum('ij,jl->il', g, f)
+    # Promote the input to inexact (float/complex).
+    # Note that jnp.result_type() accounts for the enable_x64 flag.
+    m = m.astype(jnp.result_type(float, m.dtype))
 
-        def inverse(self, g):
-            """Inverse map of the Lie group.
-            """
-            return jnp.linalg.inv(g)
+    # Wrap scipy function to return the expected dtype.
+    _scipy_logm = lambda a: scipy_logm(a).astype(m.dtype)
 
-        def exp(self, *argv):
-            """Computes the Lie-theoretic and connection exponential map
-            (depending on signature, i.e. whether footpoint is given as well)
-            """
-            return jax.lax.cond(len(argv) == 1,
-                                lambda A: A[-1],  # group exp
-                                lambda A: jnp.einsum('ij,jk', A[-1], A[0]),  # exp of CCS connection
-                                (argv[0], expm(argv[-1])))
+    # Define the expected shape & dtype of output.
+    result_shape_dtype = jax.ShapeDtypeStruct(
+        shape=jnp.broadcast_shapes(m.shape),
+        dtype=m.dtype)
 
-        retr = exp
+    # Use vmap_method="sequential" because scipy's logm does not seam to handle broadcasted inputs.
+    return jax.pure_callback(_scipy_logm, result_shape_dtype, m, vmap_method="sequential")
 
-        def log(self, *argv):
-            """Computes the Lie-theoretic and connection logarithm map
-            (depending on signature, i.e. whether footpoint is given as well)
-            """
-            # NOTE: as logm() is not available in jax we apply log via funm() (so far this is CPU only; not as stable as
-            # logm in numpy)
-            logm = lambda m: jnp.real(funm(m, jnp.log))
-            return logm(jax.lax.cond(len(argv) == 1,
-                                     lambda A: A[-1],
-                                     lambda A: jnp.einsum('ij,kj', A[-1], A[0]),
-                                     argv))
+@logm.defjvp
+def logm_jvp(primals, tangents):
+    """Evaluate the derivative of the matrix logarithm at
+    X in direction G.
+    """
+    m, = primals
+    x, = tangents
 
-        def curvature_tensor(self, f, X, Y, Z):
-            """Evaluates the curvature tensor R of the connection at f on the vectors X, Y, Z. With nabla_X Y denoting
-            the covariant derivative of Y in direction X and [] being the Lie bracket, the convention
-                R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
-            is used.
-            """
-            return - 1 / 4 * self.bracket(self.bracket(X, Y), Z)
-
-        def dleft(self, f, X):
-            """Derivative of the left translation by f applied to the tangent vector X at the identity.
-            """
-            return jnp.einsum('ij,jl->il', f, X)
-
-        def dright(self, f, X):
-            """Derivative of the right translation by f at g applied to the tangent vector X.
-            """
-            return jnp.einsum('ij,jl->il', X, f)
-
-        def dleft_inv(self, f, X):
-            """Derivative of the left translation by f^{-1} at f applied to the tangent vector X.
-            """
-            return jnp.einsum('ij,jl->il', self.inverse(f), X)
-
-        def dright_inv(self, f, X):
-            """Derivative of the right translation by f^{-1} at f applied to the tangent vector X.
-            """
-            return jnp.einsum('ij,jl->il', X, self.inverse(f))
-
-        def adjrep(self, g, X):
-            """Adjoint representation of g applied to the tangent vector X at the identity.
-            """
-            return jnp.einsum('ij,jl,lm->im', g, X, self.inverse(g))
-
-        def transp(self, f, g, X):
-            """
-            Parallel transport of the CCS connection along one-parameter subgroups; see Sec. 5.3.3 of
-            X. Pennec and M. Lorenzi,
-            "Beyond Riemannian geometry: The affine connection setting for transformation groups."
-
-            """
-            f_invg = self.lefttrans(g, self.inverse(f))
-            h = self.geopoint(self.identity, f_invg, .5)
-
-            return self.dleft_inv(f_invg, self.dleft(h, self.dright(h, X)))
-
-        def jacobiField(self, R, Q, t, X):
-            raise NotImplementedError('This function has not been implemented yet.')
+    n = m.shape[1]
+    # set up [[m, x], [0, m]]
+    W = jnp.vstack((jnp.hstack((m, x)), jnp.hstack((jnp.zeros_like(m), m))))
+    logW = logm(W)
+    return logW[:n, :n], logW[:n, n:]

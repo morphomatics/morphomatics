@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -63,10 +63,12 @@ class PowerManifold(Manifold):
         """
         Instantiate the power manifold with product structure.
         """
-        structure = PowerManifold.ProductStructure(self)
-        self._metric = structure if self.atom_manifold.metric is not None else None
-        self._connec = structure if self.atom_manifold.connec is not None else None
-        self._group = structure if self.atom_manifold.group is not None else None
+        MetricStructure = PowerManifold.ProductMetric(self)
+        GroupStructure = PowerManifold.ProductGroup(self)
+
+        self._metric = MetricStructure if self.atom_manifold.metric is not None else None
+        self._connec = MetricStructure if self.atom_manifold.connec is not None else None
+        self._group = GroupStructure if self.atom_manifold.group is not None else None
 
     def rand(self, key: jax.Array) -> jnp.array:
         """ Random element of the power manifold
@@ -76,7 +78,7 @@ class PowerManifold(Manifold):
         return jax.vmap(self.atom_manifold.rand)(subkeys)
 
     def randvec(self, p: jnp.array, key: jax.Array) -> jnp.array:
-        """Random vector in the tangent space of the point pu
+        """Random vector in the tangent space of the point p
 
         :param p: element of M^k
         :param key: a PRNG key
@@ -86,7 +88,7 @@ class PowerManifold(Manifold):
         return jax.vmap(self.atom_manifold.randvec)(p, subkeys)
 
     def zerovec(self) -> jnp.array:
-        """Zero vector in any tangen space
+        """Zero vector in any tangent space
         """
         return jnp.zeros(self.point_shape)
 
@@ -99,15 +101,14 @@ class PowerManifold(Manifold):
         """
         return jax.vmap(self.atom_manifold.proj)(p, z)
 
-    class ProductStructure(Metric, LieGroup):
-        """ Product structure, i.e., product metric, product connection, and, if applicable, product Lie group structure
-        on M^k
+    class ProductMetric(Metric):
+        """ Product metric with product Levi-Civita connection on M^k
         """
         def __init__(self, M):
             self._M: PowerManifold = M
 
         def __str__(self) -> str:
-            return "Product structure"
+            return "Product metric"
 
         @property
         def atom_mfd(self):
@@ -221,16 +222,6 @@ class PowerManifold(Manifold):
 
             return g
 
-        def ehess2rhess(self, pu: jnp.array, G: jnp.array, H: jnp.array, vw: jnp.array) -> jnp.array:
-            """Converts the Euclidean gradient G and Hessian H of a function at
-            a point pv along a tangent vector uw to the Riemannian Hessian
-            along X on the manifold.
-            """
-            if self.weights is None:
-                return jax.vmap(self.atom_mfd.metric.ehess2rhess)(pu, G, H, vw)
-            else:
-                raise NotImplementedError('This function has not been implemented yet for non-trivial metric weights.')
-
         #### connection interface ####
 
         # Note that the Levi-Civita connection does not change under a constant re-scaling of the metric.
@@ -310,12 +301,28 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self.atom_mfd.connec.jacobiField, (0, 0, None, 0))(p, q, t, X)
 
-        #### group interface ####
+        def projToGeodesic(self, p, q, s, max_iter=10):
+            return jax.vmap(self.atom_mfd.metric.projToGeodesic, (0, 0, 0, None))(p, q, s, max_iter)
 
+    class ProductGroup(LieGroup):
+        """ Product group structure with product CCS connection on M^k
+        """
+
+        def __init__(self, M):
+            self._M: PowerManifold = M
+
+        def __str__(self) -> str:
+            return "Product group structure"
+
+        @property
+        def atom_mfd(self):
+            return self._M.atom_manifold
+
+        @property
         def identity(self) -> jnp.array:
             """Identity element"""
 
-            return jax.vmap(self.atom_mfd.group.identity)(jnp.arange(self._M.k))
+            return jax.vmap(lambda _: self.atom_mfd.group.identity)(jnp.arange(self._M.k))
 
         def coords(self, v: jnp.array) -> jnp.array:
             """Coordinate map for the tangent space at the identity
@@ -326,8 +333,8 @@ class PowerManifold(Manifold):
             c = jax.vmap(self.atom_mfd.group.coords)(v)
             return c.reshape(-1)
 
-        def coords_inverse(self, X):
-            return jax.vmap(self.atom_mfd.group.coords_inverse)(X.reshape(self._M.k, -1))
+        def coords_inv(self, X):
+            return jax.vmap(self.atom_mfd.group.coords_inv)(X.reshape(self._M.k, -1))
 
         def bracket(self, v: jnp.array, w: jnp.array) -> jnp.array:
             """Lie bracket in Lie algebra
@@ -345,7 +352,7 @@ class PowerManifold(Manifold):
             :param f: element of the Lie group M^k
             :return: left-translated element
             """
-            return jax.vmap(self.atom_mfd.lefttrans)(g, f)
+            return jax.vmap(self.atom_mfd.group.lefttrans)(g, f)
 
         def righttrans(self, g: jnp.array, f: jnp.array) -> jnp.array:
             """Right translation of g by f
@@ -354,7 +361,7 @@ class PowerManifold(Manifold):
             :param f: element of the Lie group M^k
             :return: right-translated element
             """
-            return jax.vmap(self.atom_mfd.righttrans)(g, f)
+            return jax.vmap(self.atom_mfd.group.righttrans)(g, f)
 
         def inverse(self, g: jnp.array) -> jnp.array:
             """Inverse map of the Lie group
@@ -362,46 +369,25 @@ class PowerManifold(Manifold):
             :param g: element of the Lie group M^k
             :return: element of M^k that is inverse to g
             """
-            return jax.vmap(self.atom_mfd.inverse)(g)
+            return jax.vmap(self.atom_mfd.group.inverse)(g)
 
-        # the group exponential and logarithm are given by the connection group and logarithm (by using them with a
-        # different number of arguments).
+        def exp(self, v: jnp.array) -> jnp.array:
+            """Group exponential
 
-        def dleft(self, f: jnp.array, v: jnp.array) -> jnp.array:
-            """Derivative of the left translation by f at the identity applied to the tangent vector v
-
-            :param f: element of the Lie group M^k
-            :param v: tangent vector at the identity
-            :return: left-translated tangent vector represented at the identity
+            :param v: tangent vector at e
+            :return: point at time 1 of the 1-parameter subgroup with initial velocity v
             """
-            return jax.vmap(self.atom_mfd.dleft)(f, v)
+            return jax.vmap(self.atom_mfd.group.exp)(v)
 
-        def dright(self, f: jnp.array, v: jnp.array) -> jnp.array:
-            """Derivative of the right translation by f at e applied to the tangent vector v
+        retr = exp
 
-            :param f: element of the Lie group M^k
-            :param v: tangent vector at the identity
-            :return: right-translated tangent vector represented at the identity
+        def log(self, g: jnp.array) -> jnp.array:
+            """Group logarithm
+
+            :param g: element of M^k
+            :return: vector v at e with exp(v) = g
             """
-            return jax.vmap(self.atom_mfd.dright)(f, v)
-
-        def dleft_inv(self, f: jnp.array, v: jnp.array) -> jnp.array:
-            """Derivative of the left translation by f^{-1} at f applied to the tangent vector v
-
-            :param f: element of the Lie group M^k
-            :param v: tangent vector at the identity
-            :return: translated vector represented at the identity
-            """
-            return jax.vmap(self.atom_mfd.dleft_inv)(f, v)
-
-        def dright_inv(self, f: jnp.array, v: jnp.array) -> jnp.array:
-            """Derivative of the right translation by f^{-1} at f applied to the tangent vector v
-
-            :param f: element of the Lie group M^k
-            :param v: tangent vector at the identity
-            :return: translated vector represented at the identity
-            """
-            return jax.vmap(self.atom_mfd.dright_inv)(f, v)
+            return jax.vmap(self.atom_mfd.group.log)(g)
 
         def adjrep(self, g: jnp.array, v: jnp.array) -> jnp.array:
             """Adjoint representation of g applied to the tangent vector v at the identity
@@ -410,4 +396,17 @@ class PowerManifold(Manifold):
             :param v: tangent vector at the identity
             :return: tangent vector at the identity
             """
-            return jax.vmap(self.atom_mfd.adjrep)(g, v)
+            return jax.vmap(self.atom_mfd.group.adjrep)(g, v)
+
+        def jacobiField(self, g: jnp.array, f: jnp.array, t: float, X: jnp.array) -> jnp.array:
+            """
+            Evaluates a Jacobi field (with boundary conditions gam'(0) = X, gam'(1) = 0) along the geodesic gam of the
+            CCS connection from g to f.
+
+            :param g: element of M^k
+            :param f: element of M^k
+            :param t: scalar in [0,1]
+            :param X: tangent vector at p
+            :return: [gam(t), J], where J is the value of the Jacobi field (which is an element-wise Jacobi field) at gam(t)
+            """
+            return jax.vmap(self.atom_mfd.group.jacobiField, (0, 0, None, 0))(g, f, t, X)

@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -20,7 +20,7 @@ from jax.scipy.linalg import expm_frechet, sqrtm, inv
 
 from morphomatics.manifold import Manifold, Metric, LieGroup
 from morphomatics.manifold.discrete_ops import pole_ladder
-from morphomatics.manifold.util import multisym as sym
+from morphomatics.manifold.util import projToGeodesic_flat, multisym as sym
 
 
 class SPD(Manifold):
@@ -29,8 +29,6 @@ class SPD(Manifold):
      manifold = SPD(d)
 
      Elements of Sym+(d) are represented as dxd matrices with positive eigenvalues.
-
-     To improve efficiency, tangent vectors are always represented in the Lie Algebra.
 
      """
 
@@ -102,10 +100,13 @@ class SPD(Manifold):
 
     class LogEuclideanStructure(Metric, LieGroup):
         """
-            The Riemannian metric used is the product log-Euclidean metric that is induced by the standard Euclidean
+            The Riemannian metric used is the log-Euclidean metric that is induced by the standard Euclidean
             trace metric; see
                     Arsigny, V., Fillard, P., Pennec, X., and Ayache., N.
                     Fast and simple computations on tensors with Log-Euclidean metrics.
+
+            This structure also provides a Lie group structure of Sym+(d)^k.
+            Tangent vectors are treated as elements in the Lie algebra to improve efficiency.
         """
 
         def __init__(self, M):
@@ -130,13 +131,6 @@ class SPD(Manifold):
             # adjoint of right-translation by S * inverse metric at S * proj of D to tangent space at S
             # first two terms simplify to transpose of Dexp at log(S)
             return dexp(log_mat(S), sym(D))  # Dexp^T = Dexp for sym. matrices
-
-        def ehess2rhess(self, p, G, H, X):
-            """Converts the Euclidean gradient P_G and Hessian H of a function at
-            a point p along a tangent vector X to the Riemannian Hessian
-            along X on the manifold.
-            """
-            raise NotImplementedError('This function has not been implemented yet.')
 
         def retr(self, S, X):
             return self.exp(S, X)
@@ -204,29 +198,17 @@ class SPD(Manifold):
             U = self.geopoint(S, T, t)
             return (1 - t) * self.transp(U, S, X)
 
+        projectToGeodesic = projToGeodesic_flat
+
         @property
         def identity(self):
             return jnp.eye(self._M._d)
 
-        def lefttrans(self, S, X):
-            """Left-translation of X by R"""
-            return self.exp(log_mat(S) + log_mat(X))
+        def lefttrans(self, S, T):
+            """(Commutative) Translation of S by T"""
+            return self.exp(log_mat(S) + log_mat(T))
 
         righttrans = lefttrans
-
-        def dleft(self, S, X):
-            """Derivative of the left translation by f at e applied to the tangent vector X.
-            """
-            return dexp(log_mat(S), X)
-
-        dright = dleft
-
-        def dleft_inv(self, S, X):
-            """Derivative of the left translation by f^{-1} at f applied to the tangent vector X.
-            """
-            return dlog(S, X)
-
-        dright_inv = dleft_inv
 
         def inverse(self, S):
             """Inverse map of the Lie group.
@@ -243,7 +225,7 @@ class SPD(Manifold):
             c = X[2, 2]
             return jnp.array([x, y, z, a, b, c])
 
-        def coords_inverse(self, c):
+        def coords_inv(self, c):
             """Inverse of coords"""
             x, y, z, a, b, c = c[0], c[1], c[2], c[3], c[4], c[5]
 
@@ -294,13 +276,6 @@ class SPD(Manifold):
         def egrad2rgrad(self, S, D):
             """Taken from the Rieoptax implementation of SPD with affine-invariant metric"""
             return S @ D @ S.T
-
-        def ehess2rhess(self, p, G, H, X):
-            """Converts the Euclidean gradient P_G and Hessian H of a function at
-            a point p along a tangent vector X to the Riemannian Hessian
-            along X on the manifold.
-            """
-            raise NotImplementedError('This function has not been implemented yet.')
 
         def retr(self, S, X):
             return self.exp(S, X)
@@ -377,22 +352,6 @@ class SPD(Manifold):
 
         def adjJacobi(self, S, T, t, X):
             raise NotImplementedError('This function has not been implemented yet.')
-
-    def projToGeodesic(self, X, Y, P, max_iter=10):
-        '''
-        :arg X, Y: elements of Symp+(d) defining geodesic X->Y.
-        :arg P: element of Symp+(d) to be projected to X->Y.
-        :returns: projection of P to X->Y
-        '''
-
-        # all tagent vectors in common space i.e. algebra
-        v = self.connec.log(X, Y)
-        v = v / self.metric.norm(X, v)
-
-        w = self.connec.log(X, P)
-        d = self.metric.inner(X, v, w)
-
-        return self.connec.exp(X, d * v)
 
 
 @partial(jax.custom_jvp, nondiff_argnums=(1,))
@@ -507,12 +466,12 @@ def dexp(X, G):
 
 def dlog(X, G):
     """Evaluate the derivative of the matrix logarithm at
-    X in direction P_G.
+    X in direction G.
     """
-    ### using logm for [[X, P_G], [0, X]]
+    ### using logm for [[X, G], [0, X]]
     # n = X.shape[1]
-    # # set up [[X, P_G], [0, X]]
-    # W = jnp.hstack((jnp.dstack((X, P_G)), jnp.dstack((jnp.zeros_like(X), X))))
+    # # set up [[X, G], [0, X]]
+    # W = jnp.hstack((jnp.dstack((X, G)), jnp.dstack((jnp.zeros_like(X), X))))
     # return jnp.array([matrix_log(W[i])[:n, n:] for i in range(X.shape[0])])
 
     ### using (forward-mode) automatic differentiation of log_mat(X)

@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -96,13 +96,6 @@ class Euclidean(Manifold):
         def egrad2rgrad(self, x, X):
             return X
 
-        def ehess2rhess(self, x, G, H, X):
-            """Converts the Euclidean gradient P_G and Hessian H of a function at
-            a point p along a tangent vector X to the Riemannian Hessian
-            along X on the manifold.
-            """
-            return H
-
         def retr(self, x, X):
             return self.exp(x, X)
 
@@ -158,35 +151,15 @@ class Euclidean(Manifold):
         def adjJacobi(self, x, y, t, X):
             return 1/(1-t) * X
 
-        def dleft(self, f, X):
-            """Derivative of the left translation by f at e applied to the tangent vector X.
-            """
-            return X
-
-        def dright(self, f, X):
-            """Derivative of the right translation by f at e applied to the tangent vector X.
-            """
-            return self.dleft(f,X)
-
-        def dleft_inv(self, f, X):
-            """Derivative of the left translation by f^{-1} at f applied to the tangent vector X.
-            """
-            return self.dleft(-f, X)
-
-        def dright_inv(self, f, X):
-            """Derivative of the right translation by f^{-1} at f applied to the tangent vector X.
-            """
-            return self.dleft_inv(f,X)
-
         def lefttrans(self, g, f):
             """Left translation of g by f.
             """
-            return self.dleft(g,f)
+            return f+g
 
         def righttrans(self, g, f):
             """Right translation of g by f.
             """
-            return self.dleft(g,f)
+            return g+f
 
         def inverse(self, g):
             """Inverse map of the Lie group.
@@ -197,7 +170,7 @@ class Euclidean(Manifold):
             """Coordinate map for the tangent space at the identity."""
             return X
 
-        def coords_inverse(self, c):
+        def coords_inv(self, c):
             """Inverse of coords"""
             return self.coords(c)
 

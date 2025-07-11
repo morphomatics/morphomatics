@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -112,13 +112,6 @@ class Sphere(Manifold):
         def egrad2rgrad(self, p, X):
             return self._M.proj(p, X)
 
-        def ehess2rhess(self, p, G, H, X):
-            """Converts the Euclidean gradient P_G and Hessian H of a function at
-            a point p along a tangent vector X to the Riemannian Hessian
-            along X on the manifold.
-            """
-            raise NotImplementedError('This function has not been implemented yet.')
-
         def retr(self, p, X):
             return self.exp(p, X)
 
@@ -180,7 +173,11 @@ class Sphere(Manifold):
 
         def squared_dist(self, p, q):
             inner = (p * q).sum()
-            return jax.lax.cond(inner > 1-1e-6, lambda _: jnp.sum((q-p)**2), lambda i: jnp.arccos(i)**2, jnp.clip(inner, None, 1-1e-6))
+            # return jax.lax.cond(inner > 1-1e-6, lambda _: jnp.sum((q-p)**2), lambda i: jnp.arccos(i)**2, jnp.clip(inner, None, 1-1e-6))
+            return jax.lax.cond(inner > 1 - 1e-6,
+                                lambda i: -2*(i-1) + (i-1)**2/3 - 4*(i-1)**3/45,
+                                lambda i: jnp.arccos(i) ** 2,
+                                inner)
 
         def jacobiField(self, p, q, t, X):
             phi = self.dist(p, q)

@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -20,8 +20,8 @@ from jax.numpy.linalg import svd
 
 class Grassmann(Manifold):
     """ The Grassmannian.
-    Manifold of m-dimensional subspaces of n dimensional real vector space
-    Elements are represented as n x m matrices.
+    Manifold of m-dimensional subspaces of n dimensional real vector space.
+    Elements are represented as n x m matrices with orthogonal columns (cf. #project(..)).
     """
     def __init__(self, n=3, m=1, structure='Canonical'):
         if n < m or m < 1:
@@ -73,7 +73,8 @@ class Grassmann(Manifold):
 
     @staticmethod
     def project(p):
-        """Project arbitrary matrix to the manifold."""
+        """Project abritrary matrix to the manifold."""
+        # Todo: think about different naming of ”proj“ and/or ”project“
         return jnp.linalg.qr(p)[0]
 
     def proj(self, p, U):
@@ -96,13 +97,18 @@ class Grassmann(Manifold):
 
         @property
         def typicaldist(self):
-            return jnp.sqrt(jnp.prod(self._M.point_shape[-2:]))
+            return jnp.sqrt(jnp.prod(self._M.point_shape))
 
-        # Geodesic distance for Grassmann
         def dist(self, p, q):
+            return jnp.sqrt(self.squared_dist(p, q))
+
+        def squared_dist(self, p, q):
             s = svd(jnp.einsum('ji,jk', p, q), compute_uv=False)
-            s = jnp.arccos(jnp.min(s))
-            return jnp.linalg.norm(s)
+            # s2 = jnp.arccos(jnp.clip(s, -1, 1))**2
+            s2 = jnp.where(s > 1 - 1e-6,
+                         -2 * (s - 1) + (s - 1) ** 2 / 3 - 4 * (s - 1) ** 3 / 45,
+                         jnp.arccos(jnp.clip(s, 0, 1 - 1e-6)) ** 2)
+            return jnp.sum(s2)
 
         def inner(self, p, G, H):
             # Inner product (Riemannian metric) on the tangent space
@@ -110,18 +116,13 @@ class Grassmann(Manifold):
             return jnp.einsum('ij,ij', G, H)
 
         def flat(self, p, G):
-            raise NotImplementedError('This function has not been implemented yet.')
+            return G
 
         def sharp(self, p, dG):
-            raise NotImplementedError('This function has not been implemented yet.')
+            return dG
 
         def egrad2rgrad(self, p, X):
             return self._M.proj(p, X)
-
-        def ehess2rhess(self, p, G, H, X):
-            # Convert Euclidean into Riemannian Hessian.
-            xpG = jnp.einsum('ij,kj,kl', X, p, G)
-            return self._M.proj(p, H) - xpG
 
         def retr(self, X, G):
             # We do not need to worry about flipping signs of columns here,

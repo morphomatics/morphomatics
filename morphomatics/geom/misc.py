@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -14,6 +14,7 @@ import functools
 
 import numpy as np
 from scipy import sparse
+
 
 def memoize(cache_name):
     """Helper decorator memoizes the given zero-argument function.
@@ -30,6 +31,7 @@ def memoize(cache_name):
 
         return memofn
     return memo_decorator
+
 
 def gradient_matrix_ambient(verts, cells):
     """
@@ -58,6 +60,7 @@ def gradient_matrix_ambient(verts, cells):
     J = np.repeat(cells, d, axis=0).ravel()
     return sparse.csr_matrix((D, (I, J)), shape=(d*m, n))
 
+
 def gradient_matrix_local(verts, cells):
     """
     Compute gradient matrix for Lagrange basis on d-manifold simplicial geom
@@ -83,7 +86,7 @@ def gradient_matrix_local(verts, cells):
 
     # gradient = inv(M)*partials
     # change of variables: x -> L^T*x (s.t. M-inner product becomes standard one)
-    # togehter: L^T * inv(M) = inv(L)
+    # together: L^T * inv(M) = inv(L)
 
     # unroll forward substitution (no array-wise solve in numpy)
     D = np.tile(partials, (m, 1))

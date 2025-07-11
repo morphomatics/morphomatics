@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -33,7 +33,7 @@ class Bezierfold(Manifold):
 
     def __init__(self, M: Manifold, n_segments: int, degree: int, isscycle: bool=False,
                  n_steps: int=10, n_samples: int=None, structure='FunctionalBased'):
-        """Manifold of Bézier splines of constant segment degree
+        """Manifold of Bézier splines of constant segment degrees
 
         :arg M: base manifold in which the curves lie
         :arg n_segments: number of spline segments
@@ -84,7 +84,7 @@ class Bezierfold(Manifold):
 
     def initFunctionalBasedStructure(self):
         """
-        Instantiate functional-based structure with discrete methods.
+        Instantiate the functional-based structure with discrete methods.
         """
         structure = Bezierfold.FunctionalBasedStructure(self)
         self._metric = structure
@@ -244,7 +244,7 @@ class Bezierfold(Manifold):
             return jax.vmap(self.squared_dist_extrinsic)(gamma[:-1], gamma[1:]).sum() * n
 
         @staticmethod
-        @partial(jax.jit, static_argnames=['Bf'])
+        @jax.jit
         def discexp(Bf, a: jnp.array, b: jnp.array):
             """
             Compute c such that [a,b,c] is a discrete 2-geodesic.
@@ -295,7 +295,7 @@ class Bezierfold(Manifold):
             return jax.vmap(self._Bf.M.connec.log)(p, gamma[1]) * n
 
         @staticmethod
-        @partial(jax.jit, static_argnames=['Bf', 'n'])
+        @partial(jax.jit, static_argnames=['n'])
         def discgeodesic(Bf: Bezierfold, p: jnp.array, q: jnp.array, n: int = 5, maxiter: int = 100, minchange: float = 1e-6) -> jnp.array:
             """Discrete shortest path through space of Bézier splines.
 
@@ -412,7 +412,7 @@ class Bezierfold(Manifold):
                             self.squared_dist_extrinsic(B_mean, si[1])
                             + self.squared_dist_extrinsic(B_mean, sj[1])
                             - self.squared_dist_extrinsic(si[1], sj[1]))
-                            )
+                                       )
                     G = G.at[j, i].set(G[i, j])
 
             return G
@@ -424,17 +424,10 @@ class Bezierfold(Manifold):
             """
             return jax.vmap(self._Bf.M.metric.egrad2rgrad)(p, X)
 
-        ### not imlemented ###
-
-        def ehess2rhess(self, p, G, H, X):
-            """Converts the Euclidean gradient P_G and Hessian H of a function at
-            a point p along a tangent vector X to the Riemannian Hessian
-            along X on the manifold.
-            """
-            raise NotImplementedError('This function has not been implemented yet.')
-
         def retr(self, R, X):
             return self.exp(R, X)
+
+        ### not imlemented ###
 
         def curvature_tensor(self, p, X, Y, Z):
             raise NotImplementedError('This function has not been implemented yet.')
@@ -462,7 +455,7 @@ def sample(Bf: Bezierfold, pts: jnp.array, t: jnp.array) -> jnp.array:
 
 def curve_shortening_step(Bf: Bezierfold, x: jnp.array) -> Tuple[jnp.array, float]:
     """Single step of discrete curve shortening flow: Replace inner node with
-     average of its neighbours (s.t. it's the midpoint of the connecting 2-geodesic).
+     average of its neighbors (s.t. it's the midpoint of the connecting 2-geodesic).
 
     :param Bf: Bezierfold
     :param x: Discrete path in Bf (i.e. independent control points of nodes)

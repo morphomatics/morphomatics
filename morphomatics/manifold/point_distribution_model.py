@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -16,7 +16,7 @@ import numpy as np
 
 from ..geom import Surface
 from . import ShapeSpace, Metric
-from .util import align
+from .util import align, projToGeodesic_flat
 
 
 class PointDistributionModel(ShapeSpace, Metric):
@@ -86,9 +86,6 @@ class PointDistributionModel(ShapeSpace, Metric):
     def egrad2rgrad(self, p, X):
         return X
 
-    def ehess2rhess(self, p, egrad, ehess, X):
-        return ehess
-
     def exp(self, p, X):
         return p + X
 
@@ -130,13 +127,7 @@ class PointDistributionModel(ShapeSpace, Metric):
         """
         return X / (1.0 - t)
 
-    def projToGeodesic(self, p, q, m):
-        '''
-        :arg X, Y: manifold coords defining geodesic X->Y.
-        :arg P: manifold coords to be projected to X->Y.
-        :returns: manifold coords of projection of P to X->Y
-        '''
-        return super().projToGeodesic(p, q, m, max_iter=1)
+    projToGeodesic = projToGeodesic_flat
 
     def coords(self, X):
         """Coordinate map of the tangent space at the identity"""

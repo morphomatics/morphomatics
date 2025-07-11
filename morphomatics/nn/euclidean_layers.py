@@ -10,4 +10,27 @@
 #                                                                              #
 ################################################################################
 
-from .operators import mfdg_laplace, mfdg_gradient, max_pooling, mean_pooling, in_degree_centrality, out_degree_centrality
+from typing import Sequence, Callable
+import flax.linen as nn
+
+import jax.numpy as jnp
+
+
+class MLP(nn.Module):
+    features: Sequence[int]
+    hidden_activation: Callable = nn.leaky_relu
+    final_activation: Callable = None
+
+    def setup(self):
+        # biases are used
+        self.layers = [nn.Dense(feat) for feat in self.features]
+
+    def __call__(self, inputs: jnp.array):
+        x = inputs
+        for i, lyr in enumerate(self.layers):
+            x = lyr(x)
+            if i != len(self.layers) - 1:
+                x = self.hidden_activation(x)
+            elif self.final_activation is not None:
+                x = self.final_activation(x)
+        return x

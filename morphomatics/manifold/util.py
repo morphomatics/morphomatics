@@ -3,12 +3,14 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
 #                                                                              #
 ################################################################################
+
+from typing import NamedTuple, Callable
 
 import jax
 import jax.numpy as jnp
@@ -16,6 +18,18 @@ import numpy as np
 
 from morphomatics.geom.surface import Surface
 
+class LazyKernel(NamedTuple):
+    """Lazy operations with the kernel matrix."""
+    p: jax.Array
+    q: jax.Array
+    kernel: Callable[[jax.Array, jax.Array], float]
+
+    def __matmul__(self, v: jax.Array) -> jax.Array:
+        """:return product of kernel matrix with v"""
+        init = jnp.zeros((len(self.p),) + jnp.atleast_2d(v).shape[1:])
+        Ki = jax.vmap(self.kernel, (0, None))
+        f = lambda carry, qv: (carry + jnp.einsum('i,...->i...', Ki(self.p, qv[0]), qv[1]), None)
+        return jax.lax.scan(f, init, (self.q, v))[0]
 
 def align(src, ref):
     """ (Constrained) Procrustes alignment of src to ref using Kabsch algorithm
@@ -124,3 +138,50 @@ def gram_schmidt(A):
         A = A.at[:, j].set(A[:, j] / jnp.linalg.norm(A[:, j]))
 
     return A
+
+
+def projToGeodesic_flat(metric, X, Y, P, max_iter=10):
+    '''
+    Specialized version of Metric#projToGeodesic for flat spaces.
+
+    :arg X, Y: start- and endpoint of geodesic X->Y.
+    :arg P: point to be projected to X->Y.
+    :returns: projection of P to X->Y
+    '''
+
+    v = metric.log(X, Y)
+    v = v / metric.norm(X, v)
+
+    w = metric.log(X, P)
+    d = metric.inner(X, v, w)
+
+    return metric.exp(X, d * v)
+
+def projToGeodesic_group(metric, X, Y, P, max_iter=10):
+    '''
+    Specialized version of Metric#projToGeodesic for Lie groups, which represent
+    tangent vectors in algebra.
+
+    :arg X, Y: start- and endpoint of geodesic X->Y.
+    :arg P: point to be projected to X->Y.
+    :returns: projection of P to X->Y
+    '''
+
+    # all tagent vectors in common tangent space i.e. algebra
+    v = metric.log(X, Y)
+    v = v / metric.norm(X, v)
+
+    # initial guess
+    Pi = X.copy()
+
+    # solver loop
+    for _ in range(max_iter):
+        w = metric.log(Pi, P)
+        d = metric.inner(Pi, v, w)
+
+        # print(f'|<v, w>|={d}')
+        if abs(d) < 1e-6: break
+
+        Pi = metric.exp(Pi, d * v)
+
+    return Pi

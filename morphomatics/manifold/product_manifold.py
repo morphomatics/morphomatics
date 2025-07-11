@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -250,13 +250,6 @@ class ProductManifold(Manifold):
                 x = [x_/w for x_, w in zip(x, self._M.weights)]
             return self._M.entangle(x)
 
-        def ehess2rhess(self, p, G, H, X):
-            """Converts the Euclidean gradient P_G and Hessian H of a function at
-            a point p along a tangent vector X to the Riemannian Hessian
-            along X on the manifold.
-            """
-            raise NotImplementedError('This function has not been implemented yet.')
-
         def flat(self, p, X):
             """Lower vector X at p with the metric"""
             v = []
@@ -291,6 +284,12 @@ class ProductManifold(Manifold):
                 v.append(mfd.metric.adjJacobi(p_, q_, t, X_))
             return self._M.entangle(v)
 
+        def projToGeodesic(self, p, q, s, max_iter=10):
+            v = []
+            for mfd, p_, q_, s_, in zip(self._M.manifolds, self._M.disentangle(p), self._M.disentangle(q), self._M.disentangle(s)):
+                v.append(mfd.metric.projToGeodesic(p_, q_, s_, max_iter))
+            return self._M.entangle(v)
+
 
     class ProductGroup(LieGroup):
         """ Product group """
@@ -310,7 +309,7 @@ class ProductManifold(Manifold):
             """Coordinate map for the tangent space at the identity."""
             return self._M.entangle([m.group.coords(X_) for m, X_ in zip(self._M.manifolds, self._M.disentangle(X))])
 
-        def coords_inverse(self, X):
+        def coords_inv(self, X):
             """Coordinate map for the tangent space at the identity."""
             return self._M.entangle([m.group.coords_inverse(X_) for m, X_ in zip(self._M.manifolds, self._M.disentangle(X))])
 
@@ -342,40 +341,31 @@ class ProductManifold(Manifold):
             return self._M.entangle([m.group.exp(X_) for m, X_ in
                                      zip(self._M.manifolds, self._M.disentangle(X))])
 
+        retr = exp
+
         def log(self, g):
             """Computes the Lie-theoretic logarithm of g. This is the inverse of `exp`.
             """
             return self._M.entangle([m.group.log(g_) for m, g_ in
                                      zip(self._M.manifolds, self._M.disentangle(g))])
 
-
-        def dleft(self, f, X):
-            """Derivative of the left translation by f at e applied to the tangent vector X.
-            """
-            return self._M.entangle([m.group.dleft(f_, X_) for m, f_, X_ in
-                                     zip(self._M.manifolds, self._M.disentangle(f), self._M.disentangle(X))])
-
-
-        def dright(self, f, X):
-            """Derivative of the right translation by f at e applied to the tangent vector X.
-            """
-            return self._M.entangle([m.group.dright(f_, X_) for m, f_, X_ in
-                                     zip(self._M.manifolds, self._M.disentangle(f), self._M.disentangle(X))])
-
-        def dleft_inv(self, f, X):
-            """Derivative of the left translation by f^{-1} at f applied to the tangent vector X.
-            """
-            return self._M.entangle([m.group.dleft_inv(f_, X_) for m, f_, X_ in
-                                     zip(self._M.manifolds, self._M.disentangle(f), self._M.disentangle(X))])
-
-        def dright_inv(self, f, X):
-            """Derivative of the right translation by f^{-1} at f applied to the tangent vector X.
-            """
-            return self._M.entangle([m.group.dright_inv(f_, X_) for m, f_, X_ in
-                                     zip(self._M.manifolds, self._M.disentangle(f), self._M.disentangle(X))])
-
         def adjrep(self, g, X):
             """Adjoint representation of g applied to the tangent vector X at the identity.
             """
             return self._M.entangle([m.group.adjrep(g_, X_) for m, g_, X_ in
                                      zip(self._M.manifolds, self._M.disentangle(g), self._M.disentangle(X))])
+
+        def jacobiField(self, p, q, t, X):
+            """
+            Evaluates a Jacobi field (with boundary conditions gam'(0) = X, gam'(1) = 0) along the geodesic gam of the
+            CCS connection from p to q.
+            :param p: element of the Lie group
+            :param q: element of the Lie group
+            :param t: scalar in [0,1]
+            :param X: tangent vector at p
+            :return: [b, J] with J and b being the Jacobi field at t and the corresponding basepoint
+            """
+            x = []
+            for mfd, p_, q_, X_, in zip(self._M.manifolds, self._M.disentangle(p), self._M.disentangle(q), self._M.disentangle(X)):
+                x.append(mfd.group.jacobiField(p_, q_, t, X_))
+            return self._M.entangle(x)

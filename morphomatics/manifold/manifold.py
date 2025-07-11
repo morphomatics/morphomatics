@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -125,38 +125,3 @@ class Manifold(metaclass=ManifoldMeta):
         """Projects a vector X in the ambient space on the tangent space at
         p.
         """
-
-    def projToGeodesic(self, X, Y, P, max_iter=10):
-        '''
-        Project P onto geodesic from X to Y.
-
-        See:
-        Felix Ambellan, Stefan Zachow, Christoph von Tycowicz.
-        Geodesic B-Score for Improved Assessment of Knee Osteoarthritis.
-        Proc. Information Processing in Medical Imaging (IPMI), LNCS, 2021.
-
-        :arg X, Y: manifold coords defining geodesic X->Y.
-        :arg P: manifold coords to be projected to X->Y.
-        :returns: manifold coords of projection of P to X->Y
-        '''
-        assert X.shape == Y.shape
-        assert Y.shape == P.shape
-        assert self.connec
-        assert self.metric
-
-        # initial guess
-        Pi = X.copy()
-
-        # solver loop
-        for _ in range(max_iter):
-            v = self.connec.log(Pi, Y)
-            v = v / self.metric.norm(Pi, v)
-            w = self.connec.log(Pi, P)
-            d = self.metric.inner(Pi, v, w)
-
-            # print(f'|<v, w>|={d}')
-            if abs(d) < 1e-6: break
-
-            Pi = self.connec.exp(Pi, d * v)
-
-        return Pi

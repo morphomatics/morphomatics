@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -14,8 +14,12 @@
 from __future__ import annotations
 
 import abc
+import jax
+import jax.numpy as jnp
 
-class LieGroup(metaclass=abc.ABCMeta):
+from morphomatics.manifold.connection import Connection
+
+class LieGroup(Connection):
     """
     Interface setting out a template for Lie group classes.
     """
@@ -44,7 +48,7 @@ class LieGroup(metaclass=abc.ABCMeta):
         """Coordinate map for the tangent space at the identity."""
 
     @abc.abstractmethod
-    def coords_inverse(self, X):
+    def coords_inv(self, X):
         """Inverse coordinate map for the tangent space at the identity."""
 
     @abc.abstractmethod
@@ -67,34 +71,37 @@ class LieGroup(metaclass=abc.ABCMeta):
         """
 
     @abc.abstractmethod
-    def exp(self, X):
-        """Computes the Lie-theoretic exponential map of a tangent vector X at e.
+    def exp(self, *argv):
+        """Computes the Lie-theoretic and canonical Cartan Shouten (CCS) connection exponential map
+        (depending on signature, i.e. whether a footpoint is given as well)
         """
 
     @abc.abstractmethod
-    def log(self, g):
-        """Computes the Lie-theoretic logarithm of g. This is the inverse of `exp`.
+    def log(self, *argv):
+        """Computes the Lie-theoretic and CCS connection exponential map
+        (depending on signature, i.e. whether a footpoint is given as well)
         """
 
-    @abc.abstractmethod
-    def dleft(self, f, X):
-        """Derivative of the left translation by f at e applied to the tangent vector X.
+    def curvature_tensor(self, f, X, Y, Z):
+        """Evaluates the curvature tensor R of the CCS connection at f on the vectors X, Y, Z. With nabla_X Y denoting
+        the covariant derivative of Y in direction X and [] being the Lie bracket, the convention
+            R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
+        is used.
         """
+        return - 1 / 4 * self.bracket(self.bracket(X, Y), Z)
 
-    @abc.abstractmethod
-    def dright(self, f, X):
-        """Derivative of the right translation by f at e applied to the tangent vector X.
+    def transp(self, f, g, X):
         """
+        Parallel transport of the CCS connection along one-parameter subgroups; see Sec. 5.3.3 of
+        X. Pennec and M. Lorenzi,
+        "Beyond Riemannian geometry: The affine connection setting for transformation groups."
 
-    @abc.abstractmethod
-    def dleft_inv(self, f, X):
-        """Derivative of the left translation by f^{-1} at f applied to the tangent vector X.
         """
+        f_invg = self.lefttrans(g, self.inverse(f))
+        h = self.geopoint(self.identity, f_invg, .5)
 
-    @abc.abstractmethod
-    def dright_inv(self, f, X):
-        """Derivative of the right translation by f^{-1} at f applied to the tangent vector X.
-        """
+        # return self.dleft_inv(f_invg, self.dleft(h, self.dright(h, X)))
+        return self.lefttrans(self.inverse(f_invg), self.lefttrans(h, self.righttrans(h, X)))
 
     @abc.abstractmethod
     def adjrep(self, g, X):

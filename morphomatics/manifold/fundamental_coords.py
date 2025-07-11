@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -263,39 +263,6 @@ class FundamentalCoords(ShapeSpace):
         """orthogonal (with respect to the euclidean inner product) projection of ambient
         vector (vectorized (2,k,3,3) array) onto the tangentspace at X"""
         return self.M.proj(X, A)
-
-    def projToGeodesic(self, X, Y, P, max_iter = 10):
-        '''
-        Project P onto geodesic from X to Y.
-
-        See:
-        Felix Ambellan, Stefan Zachow, Christoph von Tycowicz.
-        Geodesic B-Score for Improved Assessment of Knee Osteoarthritis.
-        Proc. Information Processing in Medical Imaging (IPMI), LNCS, 2021.
-
-        :arg X, Y: manifold coords defining geodesic X->Y.
-        :arg P: manifold coords to be projected to X->Y.
-        :returns: manifold coords of projection of P to X->Y
-        '''
-
-        # all tangent vectors in common space i.e. algebra
-        v = self.connec.log(X, Y)
-        v = v / self.metric.norm(X, v)
-
-        # initial guess
-        Pi = X.copy()
-
-        # solver loop
-        for _ in range(max_iter):
-            w = self.connec.log(Pi, P)
-            d = self.metric.inner(Pi, v, w)
-
-            # print(f'|<v, w>|={d}')
-            if abs(d) < 1e-6: break
-
-            Pi = self.connec.exp(Pi, d * v)
-
-        return Pi
 
     def setup_spanning_tree_path(self):
         """

@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -13,13 +13,13 @@
 import jax
 import jax.numpy as jnp
 
-from morphomatics.manifold import Manifold, Connection, LieGroup, Metric, SO3, GLpn, Euclidean
+from morphomatics.manifold import Manifold, Metric, SO3, Euclidean
+from morphomatics.manifold.gl_p_n import GLGroupStructure
 from morphomatics.manifold.so_3 import logm as SO3_logm, expm as SO3_expm
 from morphomatics.manifold.util import multiskew
 
-# SE(3) is affine submanifold of GL+(4) -> (re)use methods
-GLp4 = GLpn(n=4, structure='AffineGroup')
-# also reusing methods from rotations and R^3 for product structure
+
+# reusing methods from rotations and R^3 for product structure
 SO = SO3()
 R3 = Euclidean()
 
@@ -29,7 +29,7 @@ class SE3(Manifold):
      manifold = SE3()
 
      Elements of SE(3) are represented as matrices of size 4x4, where the upper-left 3x3 block is the rotational part,
-     the upper-right 3x1 part is the translational part, and the lower row is [0 0 0 1]. Tangent vectors, consequently,
+     the upper-right 3x1 part is the translational part, and the lowest row is [0 0 0 1]. Tangent vectors, consequently,
      follow the same ‘layout‘.
 
      To improve efficiency, tangent vectors are always represented in the Lie Algebra.
@@ -55,7 +55,7 @@ class SE3(Manifold):
         """
         Instantiate SE(3) with standard Lie group structure and canonical Cartan-Shouten connection.
         """
-        self._connec = SE3.CartanShoutenConnection(self)
+        self._connec = SE3.GroupStructure(self)
         self._group = SE3.GroupStructure(self)
 
     def initCanonicalRiemannianStructure(self):
@@ -104,49 +104,16 @@ class SE3(Manifold):
        P = P.at[3, 3].set(1.)
        return P
 
-    class GroupStructure(LieGroup):
-        def __init__(self, M):
-            """
-            Constructor.
+    class GroupStructure(GLGroupStructure):
+
+        def __init__(self, M: Manifold):
+            """ Construct group.
+            :param M: underlying manifold
             """
             self._M = M
 
         def __str__(self):
             return "Semi-direct (product) group structure"
-
-        @property
-        def identity(self):
-            """Identity element of SE(3)"""
-            return jnp.eye(4)
-
-        def lefttrans(self, P, S):
-            """Left-translation of P by S"""
-            return GLp4.group.lefttrans(P, S)
-
-        def righttrans(self, P, S):
-            """Right translation of P by S.
-            """
-            return GLp4.group.righttrans(P, S)
-
-        def dleft(self, P, X):
-            """Derivative of the left translation by P at the identity applied to the tangent vector X.
-            """
-            return GLp4.group.dleft(P, X)
-
-        def dright(self, P, X):
-            """Derivative of the right translation by P at the identity applied to the tangent vector X.
-            """
-            return GLp4.group.dright(P, X)
-
-        def dleft_inv(self, P, X):
-            """Derivative of the left translation by P^{-1} at f applied to the tangent vector X.
-            """
-            return GLp4.group.dleft_inv(P, X)
-
-        def dright_inv(self, P, X):
-            """Derivative of the right translation by P^{-1} at f applied to the tangent vector X.
-            """
-            return GLp4.group.dright_inv(P, X)
 
         def inverse(self, P):
             """Inverse map of the Lie group.
@@ -163,87 +130,46 @@ class SE3(Manifold):
             x = jnp.concatenate((x123, x456), axis=0)
             return x.reshape((-1, 1), order='F')
 
-        def coords_inverse(self, X):
+        def coords_inv(self, X):
             x123 = X[:3]
             x456 = X[3:]
             Y = self._M.group.identity
-            Y = Y.at[:3, :3].set(self._SO3.group.coords_inverse(x123))
+            Y = Y.at[:3, :3].set(SO.group.coords_inv(x123))
             Y = Y.at[:3, -1].set(x456)
             return Y
 
-        def bracket(self, X, Y):
-            """Lie bracket in Lie algebra."""
-            return GLp4.group.bracket(X, Y)
+        def action(self, P, x):
+            """returns rotation and translation encoded in matrix g applied onto R3-vector x"""
+            return jnp.matmul(self._M.get_so3(P), x) + self._M.get_r3(P)
 
-        def adjrep(self, P, X):
-            """Adjoint representation of P applied to the tangent vector X at the identity.
+        def exp(self, *argv):
+            """Computes the Lie-theoretic and CCS connection exponential map
+            (depending on signature, i.e. whether a footpoint is given as well)
             """
-            return GLp4.group.adjrep(P, X)
+            return jax.lax.cond(len(argv) == 1,
+                                lambda A: A[-1],  # group exp
+                                lambda A: jnp.einsum('ij,jk', A[-1], A[0]),  # exp of CCS connection
+                                (argv[0], expm(argv[-1])))
 
-        def exp(self, X):
-            """Computes the Lie-theoretic exponential map at X
+        retr = exp
+
+        def log(self, *argv):
+            """Computes the Lie-theoretic and CCS connection logarithm map
+            (depending on signature, i.e. whether a footpoint is given as well)
             """
-            return expm(X)
-
-        def log(self, S):
-            """Computes the Lie-theoretic logarithm map at S
-            """
-            return logm(S)
-
-    class CartanShoutenConnection(Connection):
-        """
-        Canonical Cartan-Shouten connection on SE(3) connection.
-        """
-
-        def __init__(self, M):
-            """
-            Constructor.
-            """
-            self._M = M
-
-        def __str__(self):
-            return "Canonical Cartan-Shouten connection"
-
-        def retr(self, S, X):
-            return self.exp(S, X)
-
-        def exp(self, S, X):
-            """Computes connection exponential map
-            """
-            return jnp.einsum('...ij,...jk', expm(X), S)
-
-        def log(self, P, S):
-            """Computes the connection logarithm map
-            """
-            return logm(jnp.einsum('...ij,...jk', S, GLp4.group.inverse(P)))
-
-        def curvature_tensor(self, p, X, Y, Z):
-            """Evaluates the curvature tensor R of the connection at p on the vectors X, Y, Z. With nabla_X Y denoting
-            the covariant derivative of Y in direction X and [] being the Lie bracket, the convention
-                R(X,Y)Z = (nabla_X nabla_Y) Z - (nabla_Y nabla_X) Z - nabla_[X,Y] Z
-            is used.
-            """
-            raise GLp4.connec.curvature_tensor(p, X, Y, Z)
-
-        def transp(self, P, S, X):
-            """Parallel transport for SE(3)^k.
-            :param P: element of SE(3)^k
-            :param S: element of SE(3)^k
-            :param X: tangent vector at P
-            :return: parallel transport of X at S
-            """
-            return GLp4.connec.transp(P, S, X)
-
-        def pairmean(self, P, S):
-            return self.exp(P, 0.5 * self.log(P, S))
+            return logm(jax.lax.cond(len(argv) == 1,
+                                     lambda A: A[-1],
+                                     lambda A: jnp.einsum('ij,jk', A[-1], self.inverse(A[0])),
+                                     argv))
 
         def jacobiField(self, R, Q, t, X):
             # ### using (forward-mode) automatic differentiation of geopoint(..)
             f = lambda O: self.geopoint(O, Q, t)
-            geo, J = jax.jvp(f, (R,), (self._M.group.dright(R, X),))
-            J = self._M.group.dright_inv(geo, J)
-            J = J.at[:-1, :-1].set(multiskew(J[:-1, :-1]))
-            return geo, J
+            X_at_R = self._M.group.righttrans(R, X)  # dRight_R|_e(X)
+            geo, J = jax.jvp(f, (R,), (X_at_R,))
+            J_at_e =  self._M.group.righttrans( self._M.group.inverse(geo), J)  # dRight_geo^-1|_geo(J)
+            J_at_e = J_at_e.at[:-1, :-1].set(multiskew(J_at_e[:-1, :-1]))
+            return geo, J_at_e
 
     class CanonicalRiemannianStructure(Metric):
         """
@@ -274,25 +200,15 @@ class SE3(Manifold):
 
         def flat(self, R, X):
             """Lower vector X at R with the metric"""
-            # return X
-            raise NotImplementedError('This function has not been implemented yet.')
+            return X
 
         def sharp(self, R, dX):
             """Raise covector dX at R with the metric"""
-            # return dX
-            raise NotImplementedError('This function has not been implemented yet.')
+            return dX
 
         def egrad2rgrad(self, S, X):
-            Y = X
-            # translational part is already "Riemannian"
-            return Y.at[:3, :3].set(SO.metric.egrad2rgrad(S[:3, :3], X[:3, :3]))
-
-        def ehess2rhess(self, p, G, H, X):
-            """Converts the Euclidean gradient P_G and Hessian H of a function at
-            a point p along a tangent vector X to the Riemannian Hessian
-            along X on the manifold.
-            """
-            raise NotImplementedError('This function has not been implemented yet.')
+            Y = X.at[:3, :3].set(SO.metric.egrad2rgrad(S[:3, :3], X[:3, :3]))
+            return Y.at[:3, 3].set(X[:3, 3] @ S[:3, :3].T)
 
         def retr(self, S, X):
             return self.exp(S, X)
@@ -302,8 +218,9 @@ class SE3(Manifold):
             """
             P = jnp.zeros_like(S)
             P = P.at[3, 3].set(1)
-            P = P.at[:3, :3].set(SO.connec.exp(S[:3, :3], X[:3, :3]))
-            return P.at[:3, 3].set(S[:3, 3] + X[:3, 3])
+            S_R = S[:3, :3]
+            P = P.at[:3, :3].set(SO.connec.exp(S_R, X[:3, :3]))
+            return P.at[:3, 3].set(S[:3, 3] + X[:3, 3] @ S_R)
 
         def log(self, S, P):
             """Computes the Riemannian exponential map
@@ -312,8 +229,9 @@ class SE3(Manifold):
                 operation coincide.
             """
             X = jnp.zeros_like(S)
-            X = X.at[:3, :3].set(SO.connec.log(S[:3, :3], P[:3, :3]))
-            return X.at[:3, 3].set(P[:3, 3] - S[:3, 3])
+            S_R = S[:3, :3]
+            X = X.at[:3, :3].set(SO.connec.log(S_R, P[:3, :3]))
+            return X.at[:3, 3].set((P[:3, 3] - S[:3, 3]) @ S_R.T)
 
         def curvature_tensor(self, S, X, Y, Z):
             """Evaluates the curvature tensor R of the connection at S on the vectors X, Y, Z. With nabla_X Y denoting
@@ -332,9 +250,9 @@ class SE3(Manifold):
             :param X: tangent vector at R
             :return: parallel transport of X at Q
             """
-            Y = X
-            # translational part has the identity as parallel transport
-            return Y.at[:3, :3].set(SO.connec.transp(S[:3, :3], P[:3, :3], X[:3, :3]))
+            Y = X.at[:3, :3].set(SO.connec.transp(S[:3, :3], P[:3, :3], X[:3, :3]))
+            # translational part has the identity as parallel transport (only update representation in algebra)
+            return Y.at[:3, 3].set(X[:3, 3] @ S[:3, :3] @ P[:3, :3].T)
 
         def pairmean(self, S, P):
             return self.exp(S, 0.5 * self.log(S, P))
@@ -359,15 +277,21 @@ class SE3(Manifold):
             return Pi.at[:3, 3].set(R3.metric.projToGeodesic(S[:3, 3], P[:3, 3], Q[:3, 3], max_iter))
 
         def jacobiField(self, S, P, t, X):
-            J = jnp.zeros_like(X)
-            J = J.at[:3, :3].set(SO.connec.jacobiField(S[:3, :3], P[:3, :3], t, X[:3, :3]))
-            return J.at[:3, 3].set(R3.connec.jacobiField(S[:3, 3], P[:3, 3], t, X[:3, 3]))
+            R_t, J_R = SO.connec.jacobiField(S[:3, :3], P[:3, :3], t, X[:3, :3])
+            t_t, J_t = R3.connec.jacobiField(S[:3, 3], P[:3, 3], t, X[:3, 3] @ S[:3, :3])
+            X = X.at[:3, :3].set(J_R)
+            gam_t = jnp.zeros_like(S).at[-1,-1].set(1)
+            gam_t = gam_t.at[:3, :3].set(R_t).at[:3, 3].set(t_t)
+            return gam_t, X.at[:3, 3].set(J_t @ R_t.T)
 
         def adjJacobi(self, S, P, t, X):
-            J = jnp.zeros_like(X)
-            J = J.at[:3, :3].set(SO.metric.adjJacobi(S[:3, :3], P[:3, :3], t, X[:3, :3]))
-            return J.at[:3, 3].set(R3.metric.adjJacobi(S[:3, 3], P[:3, 3], t, X[:3, 3]))
-
+            ### using (reverse-mode) automatic differentiation of geopoint(..)
+            f = lambda O: self.geopoint(O, P, t)
+            geo, vjp = jax.vjp(f, S)
+            X_at_geo = self.righttrans(geo, X)  # dRight_geo|_e(X)
+            aJ = vjp(X_at_geo)[0]
+            aJ_at_e = self.righttrans(self.inverse(S), aJ)  # dRight_R^-1|_R(J)
+            return aJ_at_e.at[:3,:3].set(multiskew(aJ_at_e.at[:3,:3]))
 
 
 def logm(P):

@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -15,8 +15,9 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from morphomatics.manifold import Manifold, Metric, LieGroup
-from morphomatics.manifold.util import multiskew as skew
+from morphomatics.manifold import Manifold, Metric
+from morphomatics.manifold.util import projToGeodesic_group, multiskew as skew
+from morphomatics.manifold.gl_p_n import GLGroupStructure
 
 I = np.eye(3)
 O = np.zeros(3)
@@ -63,12 +64,11 @@ class SO3(Manifold):
         return skew(S)
 
     def rand(self, key: jax.Array):
-        return self.group.exp(self.randskew(key))
+        return expm(self.randvec(I, key))
 
     def randvec(self, X, key: jax.Array):
-        U = self.randskew(key)
-        nrmU = jnp.sqrt(jnp.tensordot(U, U, axes=U.ndim))
-        return U / nrmU
+        S = jax.random.normal(key, self.point_shape)
+        return skew(S)
 
     def zerovec(self):
         return jnp.zeros(self.point_shape)
@@ -78,7 +78,15 @@ class SO3(Manifold):
         vector ((3,3) array) onto the tangent space at X"""
         return skew(jnp.einsum('ij, kj', H, X))
 
-    class CanonicalStructure(Metric, LieGroup):
+    @staticmethod
+    def project(R):
+        """maps 3x3-matrix R to closest SO(3)-matrix by factoring out singular values"""
+        U, _, Vt = jnp.linalg.svd(R)
+        O = U @ Vt
+        det = jnp.sign(jnp.linalg.det(O))
+        return U @ Vt.at[:, -1].set(det*Vt[:, -1])
+
+    class CanonicalStructure(Metric, GLGroupStructure):
         """
         The Riemannian metric used is the induced from the embedding space R^(3x3), i.e., this manifold is a
         Riemannian submanifold of R^(3x3) endowed with the usual trace inner product.
@@ -116,18 +124,8 @@ class SO3(Manifold):
         def egrad2rgrad(self, R, X):
             return self._M.proj(R, X)
 
-        def ehess2rhess(self, p, G, H, X):
-            """Converts the Euclidean gradient P_G and Hessian H of a function at
-            a point p along a tangent vector X to the Riemannian Hessian
-            along X on the manifold.
-            """
-            raise NotImplementedError('This function has not been implemented yet.')
-
-        def retr(self, R, X):
-            return self.exp(R, X)
-
         def exp(self, *argv):
-            """Computes the Lie-theoretic and Riemannian logarithmic map
+            """Computes the Lie-theoretic and Riemannian exponential map
                 (depending on signature, i.e. whether footpoint is given as well)
 
                 Note that tangent vectors are always represented in the Lie Algebra.Thus, the Riemannian and group
@@ -136,8 +134,11 @@ class SO3(Manifold):
             e = expm(argv[-1])
             return e if len(argv) == 1 else jnp.einsum('ij, jk', e, argv[0])
 
+        retr = exp
+
+
         def log(self, *argv):
-            """Computes the Lie-theoretic and Riemannian exponential map
+            """Computes the Lie-theoretic and Riemannian logarithm map
                 (depending on signature, i.e. whether footpoint is given as well)
 
                 Note that tangent vectors are always represented in the Lie Algebra.Thus, the Riemannian and group
@@ -157,10 +158,6 @@ class SO3(Manifold):
             """Evaluate the geodesic from R to Q at time t"""
             return self.exp(R, t * self.log(R, Q))
 
-        @property
-        def identity(self):
-            return jnp.eye(3)
-
         def transp(self, R, Q, X):
             """Parallel transport for SO(3).
             :param R: element of SO(3)
@@ -171,9 +168,6 @@ class SO3(Manifold):
             O = expm(.5 * logm(jnp.einsum('ij,kj', Q, R)))
             return jnp.einsum('ji,jk,kl', O, X, O)
 
-        def pairmean(self, R, Q):
-            return self.exp(R, 0.5 * self.log(R, Q))
-
         def dist(self, R, Q):
             """Product distance function"""
             return jnp.sqrt(self.squared_dist(R, Q))
@@ -183,37 +177,15 @@ class SO3(Manifold):
             X = logm(jnp.einsum('ij,kj', Q, R))
             return jnp.sum(X**2)
 
-        def projToGeodesic(self, R, Q, P, max_iter=10):
-            '''
-            :arg X, Y: elements of SO(3) defining geodesic X->Y.
-            :arg P: element of SO(3) to be projected to X->Y.
-            :returns: projection of P to X->Y
-            '''
-
-            # all tagent vectors in common space i.e. algebra
-            v = self.log(R, Q)
-            v = v / self.norm(R, v)
-
-            # initial guess
-            Pi = R.copy()
-
-            # solver loop
-            for _ in range(max_iter):
-                w = self.log(Pi, P)
-                d = self.inner(Pi, v, w)
-
-                # print(f'|<v, w>|={d}')
-                if abs(d) < 1e-6: break
-
-                Pi = self.exp(Pi, d * v)
-
-            return Pi
+        projToGeodesic = projToGeodesic_group
 
         def jacobiField(self, R, Q, t, X):
             # ### using (forward-mode) automatic differentiation of geopoint(..)
             f = lambda O: self.geopoint(O, Q, t)
-            geo, J = jax.jvp(f, (R,), (self.dright(R, X),))
-            return geo, skew(self.dright_inv(geo, J))
+            X_at_R = self.righttrans(R, X) # dRight_R|_e(X)
+            geo, J = jax.jvp(f, (R,), (X_at_R,))
+            J_at_e = self.righttrans(self.inverse(geo), J) # dRight_geo^-1|_geo(J)
+            return geo, skew(J_at_e)
 
         def jacONB(self, R, Q):
             """Let J be the Jacobi operator along the geodesic from R to Q. This code diagonalizes J.
@@ -296,7 +268,10 @@ class SO3(Manifold):
             ### using (reverse-mode) automatic differentiation of geopoint(..)
             f = lambda O: self.geopoint(O, Q, t)
             geo, vjp = jax.vjp(f, R)
-            return skew(self.dright_inv(R, vjp(self.dright(geo, X))[0]))
+            X_at_geo = self.righttrans(geo, X)  # dRight_geo|_e(X)
+            aJ = vjp(X_at_geo)[0]
+            aJ_at_e = self.righttrans(self.inverse(R), aJ)  # dRight_R^-1|_R(J)
+            return skew(aJ_at_e)
 
             # # gam(t)
             # P = self.geopoint(R, Q, t)
@@ -324,40 +299,10 @@ class SO3(Manifold):
             #
             # return multiskew(jnp.sum(F, axis=0))
 
-        def dleft(self, f, X):
-            """Derivative of the left translation by f at e applied to the tangent vector X.
-            """
-            return jnp.einsum('ij,jk', f, X)
-
-        def dright(self, f, X):
-            """Derivative of the right translation by f at e applied to the tangent vector X.
-            """
-            return jnp.einsum('ij,jk', X, f)
-
-        def dleft_inv(self, f, X):
-            """Derivative of the left translation by f^{-1} at f applied to the tangent vector X.
-            """
-            return jnp.einsum('ji,jk', f, X)
-
-        def dright_inv(self, f, X):
-            """Derivative of the right translation by f^{-1} at f applied to the tangent vector X.
-            """
-            return jnp.einsum('ij,kj', X, f)
-
-        def lefttrans(self, g, f):
-            """Left translation of g by f.
-            """
-            return jnp.einsum('ij,jk', f, g)
-
-        def righttrans(self, g, f):
-            """Right translation of g by f.
-            """
-            return jnp.einsum('ij,jk', g, f)
-
         def inverse(self, g):
             """Inverse map of the Lie group.
             """
-            return jnp.einsum('ij->ji', g)
+            return g.transpose()
 
         def coords(self, X):
             """Coordinate map for the tangent space at the identity."""
@@ -366,7 +311,7 @@ class SO3(Manifold):
             z = X[1, 2]
             return jnp.array([x, y, z])
 
-        def coords_inverse(self, c):
+        def coords_inv(self, c):
             """Inverse of coords"""
             x, y, z = c[0], c[1], c[2]
 
@@ -378,14 +323,6 @@ class SO3(Manifold):
             X = X.at[1, 2].set(z)
             X = X.at[2, 1].set(-z)
             return X
-
-        def bracket(self, X, Y):
-            return jnp.einsum('ij,jl->il', X, Y) - jnp.einsum('ij,jl->il', Y, X)
-
-        def adjrep(self, g, X):
-            """Adjoint representation of g applied to the tangent vector X at the identity.
-            """
-            raise NotImplementedError('This function has not been implemented yet.')
 
 
 def weightfun(lam, t, d):

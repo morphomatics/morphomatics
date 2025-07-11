@@ -79,8 +79,8 @@ jobs:
       run: >-
         gh release create
         '${{ github.ref_name }}'
-        --repo '${{ github.repository }}'
         --notes-from-tag
+      # --repo '${{ github.repository }}' <- caused error: using `--notes-from-tag` with `--repo` is not supported
     - name: Upload artifact signatures to GitHub Release
       env:
         GITHUB_TOKEN: ${{ github.token }}

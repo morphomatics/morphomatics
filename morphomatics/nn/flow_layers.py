@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -53,45 +53,55 @@ class FlowLayer(nn.Module):
     implicit: bool = False
     max_step_length: float = jnp.inf
     t_init: Callable = lambda *args: nn.initializers.truncated_normal(stddev=1.)(*args) + 1.
-    delta_init: Callable = lambda *args: nn.initializers.truncated_normal(stddev=1.)(*args) + 1.
+    alpha_init: Callable = lambda *args: nn.initializers.truncated_normal(stddev=1.)(*args) + 1.
+    beta_init: Callable = lambda *args: nn.initializers.constant(1.)(*args)
 
-    def _single_euler_step(self, G: jraph.GraphsTuple, time: jnp.ndarray, delta: jnp.ndarray) -> jraph.GraphsTuple:
+    def _single_euler_step(self,
+                           G: jraph.GraphsTuple,
+                           time: jnp.ndarray,
+                           alpha: jnp.ndarray,
+                           beta: jnp.array) -> jraph.GraphsTuple:
         """Single step of the explicit Euler method for diffusion
 
         :param G: graph with manifold valued vectors as features; length of vector must equal the flow layer width
         :param time: vector of time parameters (same length as number of features)
-        :param delta: vector of "minimal step sizes"
+        :param alpha: vector of centers of sigmoid functions (same length as number of features)
+        :param beta: vector of "steepness parameters" (same length as number of features)
         :return: updated graph
         """
 
         def _multi_laplace(channel):
             return mfdg_laplace(self.M, G._replace(nodes=channel))
 
-        def _activation(feature, vector, d):
+        def _activation(feature, vector, a, b):
             nrm = jnp.sqrt(self.M.metric.inner(feature, vector, vector) + jnp.finfo(jnp.float64).eps)
-            alp = jax.nn.sigmoid(nrm - d)
+            d = jax.nn.sigmoid(b*(nrm - a))
 
             # make sure that the step size is not larger than max_step_length
-            return jax.lax.cond(nrm * alp <= self.max_step_length,
-                                lambda w: alp * w,
+            return jax.lax.cond(nrm * d <= self.max_step_length,
+                                lambda w: d * w,
                                 lambda w: w * self.max_step_length / nrm, vector)
 
         v = jax.vmap(_multi_laplace, in_axes=1, out_axes=1)(G.nodes)
 
-        # ReLU-type activation
-        delta = jnp.stack([delta, ] * v.shape[0])
-        v = jax.vmap(jax.vmap(_activation))(G.nodes, v, delta)
+        alpha = jnp.stack([alpha, ] * v.shape[0])
+        beta = jnp.stack([beta, ] * v.shape[0])
+        v = jax.vmap(jax.vmap(_activation))(G.nodes, v, alpha, beta)
 
         v = -v * time.reshape((1, -1) + (1,) * (v.ndim - 2))
         x = jax.vmap(jax.vmap(self.M.connec.exp))(G.nodes, v)
         return G._replace(nodes=x)
 
-    def _implicit_euler_step(self, G: jraph.GraphsTuple, time: jnp.ndarray, delta=None) -> jraph.GraphsTuple:
+    def _implicit_euler_step(self, G: jraph.GraphsTuple,
+                             time: jnp.ndarray,
+                             alpha=None,
+                             beta=None) -> jraph.GraphsTuple:
         """Single step of the implicit Euler method for diffusion
 
         :param G: graph with manifold valued vectors as features; length of vector must equal the flow layer width
         :param time: vector of time parameters (same length as number of features)
-        :param delta: only needed for out of syntax reasons
+        :param alpha: only needed for out of syntax reasons
+        :param beta: only needed for out of syntax reasons
         :return: updated graph
         """
         # n_nodes x n_channels x point_shape
@@ -136,14 +146,16 @@ class FlowLayer(nn.Module):
         width = G.nodes.shape[1]  # number of channels
         ####################
         t = self.param("t_sqrt", self.t_init, (width,), G.nodes.dtype)
-        delta = self.param("delta_sqrt", self.delta_init, (width,), G.nodes.dtype)
+        alpha = self.param("alpha_sqrt", self.alpha_init, (width,), G.nodes.dtype)
+        beta = self.param("beta_sqrt", self.beta_init, (width,), G.nodes.dtype)
 
-        # map to non-negative weights
+        # map to non-negative parameters
         t = t ** 2
-        delta = delta ** 2
+        alpha = alpha ** 2
+        beta = beta ** 2
 
         def step(graph, _):
-            graph = step_method(graph, t / self.n_steps, delta)
+            graph = step_method(graph, t / self.n_steps, alpha, beta)
             return graph, None
 
         G, _ = jax.lax.scan(step, G, None, self.n_steps, unroll=self.n_steps)
@@ -157,7 +169,7 @@ class MfdGcnBlock(nn.Module):
     M. Hanik, G, Steidl, C. v. Tycowicz. "Manifold GCN: Diffusion-based Convolutional Neural Network for
     Manifold-valued Graphs" (https://arxiv.org/abs/2401.14381)
 
-    An explicit skip connection can be added that attaches the input to the output as an additional channels.
+    An explicit skip connection can be added that attaches the input to the output as additional channels.
     Note: If skip connections between each flow-tMLP unit are wanted, use several blocks with only one layer.
 
     :param M: manifold constituting the signal domain

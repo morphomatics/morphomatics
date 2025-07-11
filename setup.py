@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2024 Zuse Institute Berlin                                   #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -20,13 +20,14 @@ long_description = (this_directory / "README.md").read_text()
 setup(
   name = 'morphomatics',
   packages = ['morphomatics',
+              'morphomatics.correspondence',
               'morphomatics.geom',
               'morphomatics.graph',
               'morphomatics.manifold',
               'morphomatics.nn',
               'morphomatics.opt',
               'morphomatics.stats'],
-  version = '4.0',
+  version = '4.1',
   version_name = 'Trained Tiberius',
   license='MIT License',
   description = 'Geometric morphometrics in non-Euclidean shape spaces',
