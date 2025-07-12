@@ -27,7 +27,7 @@ setup(
               'morphomatics.nn',
               'morphomatics.opt',
               'morphomatics.stats'],
-  version = '4.1',
+  version = '4.1.1',
   version_name = 'Trained Tiberius',
   license='MIT License',
   description = 'Geometric morphometrics in non-Euclidean shape spaces',
