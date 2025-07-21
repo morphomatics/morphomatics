@@ -1,3 +1,15 @@
+################################################################################
+#                                                                              #
+#   This file is part of the Morphomatics library                              #
+#       see https://github.com/morphomatics/morphomatics                       #
+#                                                                              #
+#   Copyright (C) 2025 Zuse Institute Berlin                                   #
+#                                                                              #
+#   Morphomatics is distributed under the terms of the MIT License.            #
+#       see $MORPHOMATICS/LICENSE                                              #
+#                                                                              #
+################################################################################
+
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -153,4 +165,3 @@ class Diffeomorphism(Manifold):
             _, _, x_morphed = odeint(F, (g, self._M._control_pts, x), t)
 
             return x_morphed
-
