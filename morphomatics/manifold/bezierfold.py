@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2025 Zuse Institute Berlin                                   #
+#   Copyright (C) 2026 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -478,7 +478,7 @@ def curve_shortening_step(Bf: Bezierfold, x: jnp.array) -> Tuple[jnp.array, floa
         post = sample(Bf, post, t)
         # update (fit cur to pre & post)
         Y = jnp.concatenate([pre, post])
-        opt = RiemannianRegression.fit(Bf.M, Y, tt, cur, deg, nseg, maxiter=1, iscycle=Bf.iscycle)
+        opt = RiemannianRegression.fit(Bf.M, Y, tt, cur, deg, nseg, max_iter=1, iscycle=Bf.iscycle)
         # update inf-norm
         d = jnp.array([d, jnp.abs(opt - cur).max()]).max()
         #d = jnp.array([d, jnp.linalg.norm(jnp.ravel(opt - cur), ord=jnp.inf)]).max()

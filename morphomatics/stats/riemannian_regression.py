@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2025 Zuse Institute Berlin                                   #
+#   Copyright (C) 2026 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -37,8 +37,17 @@ class RiemannianRegression(object):
     Proc. Medical Image Computing and Computer Assisted Intervention (MICCAI), 2020.
     """
 
-    def __init__(self, M: Manifold, Y: jnp.array, param: jnp.array, degree: int = 1, n_segments: int = 1, iscycle=False,
-                 P_init=None, maxiter=100, mingradnorm=1e-6):
+    def __init__(self, M: Manifold,
+                 Y: jnp.ndarray,
+                 param: jnp.ndarray,
+                 degree: int = 1,
+                 n_segments: int = 1,
+                 iscycle: bool = False,
+                 P_init: jnp.ndarray = None,
+                 max_iter: int = 100,
+                 min_norm: float = 1e-6,
+                 step_size: float = 0.1,
+                 verbose: bool = True):
         """Compute regression with Bézier splines for data in a manifold M.
 
         :param M: manifold
@@ -49,8 +58,9 @@ class RiemannianRegression(object):
         :param n_segments: number of segments. Must be positive.
         :param iscycle: boolean that determines whether a closed curve C1 spline shall be modeled.
         :param P_init: initial guess
-        :param maxiter: maximum number of iterations in steepest descent
-        :param mingradnorm: stop iteration when the norm of the gradient is lower than mingradnorm
+        :param max_iter: maximum number of iterations in steepest descent
+        :param min_norm: stop iteration when the norm of the gradient is lower than mingradnorm
+        :param step_size: step size for gradient descent
 
         :return P: array of control points of the optimal Bézier spline
         """
@@ -66,7 +76,7 @@ class RiemannianRegression(object):
         P_init = indep_set(P_init, iscycle)
 
         # fit spline to data
-        P = RiemannianRegression.fit(M, Y, param, P_init, degree, n_segments, iscycle, maxiter, mingradnorm)
+        P = RiemannianRegression.fit(M, Y, param, P_init, degree, n_segments, iscycle, max_iter, min_norm, step_size)
 
         # construct spline from ctrl. pts.
         P = full_set(M, P, degrees, iscycle)
@@ -74,9 +84,17 @@ class RiemannianRegression(object):
 
     @staticmethod
     @partial(jax.jit, static_argnames=['degree', 'n_segments', 'iscycle'])
-    def fit(M: Manifold, Y: jnp.array, param: jnp.array, P_init: jnp.array, degree: int, n_segments: int, iscycle=False,
-            maxiter=100, mingradnorm=1e-6) -> jnp.array:
-        """Fit Bézier spline to data Y,param in a manifold M using gradient descent.
+    def fit(M: Manifold,
+            Y: jnp.ndarray,
+            param: jnp.ndarray,
+            P_init: jnp.ndarray,
+            degree: int,
+            n_segments: int,
+            iscycle: bool = False,
+            max_iter: int = 100,
+            min_norm: float = 1e-6,
+            step_size: float = 1.) -> jnp.ndarray:
+        """Fit Bézier spline to data Y, param in a manifold M using gradient descent.
 
         :param M: manifold
         :param Y: array containing M-valued data.
@@ -86,8 +104,9 @@ class RiemannianRegression(object):
         :param degree: degree of each segment of the spline. Must be > 0/2 for non-/cyclic splines.
         :param n_segments: number of segments. Must be positive.
         :param iscycle: boolean that determines whether a closed curve C1 spline shall be modeled.
-        :param maxiter: maximum number of iterations in steepest descent
-        :param mingradnorm: stop iteration when the norm of the gradient is lower than mingradnorm
+        :param max_iter: maximum number of iterations in steepest descent
+        :param min_norm: stop iteration when the norm of the gradient is lower than mingradnorm
+        :param step_size: step size for gradient descent
 
         :return P: array of independent control points of the optimal Bézier spline.
         """
@@ -103,7 +122,7 @@ class RiemannianRegression(object):
             pts = full_set(M, P, degrees, iscycle)
             return sumOfSquared(BezierSpline(M, pts, iscycle=iscycle), Y, param) / len(Y)
 
-        args = {'stepsize': 1., 'maxiter': maxiter, 'mingradnorm': mingradnorm}
+        args = {'stepsize': step_size, 'maxiter': max_iter, 'mingradnorm': min_norm}
         return RiemannianSteepestDescent.fixedpoint(N, cost, P_init, **args)
 
     @property
@@ -113,6 +132,11 @@ class RiemannianRegression(object):
             explanatory and manifold-valued dependent variable.
         """
         return self._spline
+
+    def eval(self, t):
+        """ Evaluate the regressed spline at time t.
+        """
+        return self._spline.eval(t)
 
     @cached_property
     def unexplained_variance(self) -> float:
@@ -135,8 +159,11 @@ class RiemannianRegression(object):
         return 1 - self.unexplained_variance / total_var
 
     @staticmethod
-    def initControlPoints(M: Manifold, Y: jnp.array, param: jnp.array,
-                          degrees: jnp.array, iscycle: bool = False) -> jnp.array:
+    def initControlPoints(M: Manifold,
+                          Y: jnp.ndarray,
+                          param: jnp.ndarray,
+                          degrees: jnp.ndarray,
+                          iscycle: bool = False) -> jnp.ndarray:
         """Computes an initial choice of control points for the gradient descent steps in non-cyclic Bézier spline
         regression.
         The control points are initialized "along geodesics" near the data
@@ -195,7 +222,7 @@ class RiemannianRegression(object):
         return jnp.array(P)
 
 
-def sumOfSquared(B: BezierSpline, Y: jnp.array, param: jnp.array) -> float:
+def sumOfSquared(B: BezierSpline, Y: jnp.ndarray, param: jnp.ndarray) -> jnp.ndarray:
     """Computes sum of squared distances between the spline
     defined by P and data Y.
     :param B: Bézier spline
@@ -207,7 +234,7 @@ def sumOfSquared(B: BezierSpline, Y: jnp.array, param: jnp.array) -> float:
     return jnp.sum(jax.vmap(lambda y, t: B._M.metric.squared_dist(B.eval(t), y))(Y, param))
 
 
-def gradSumOfSquared(B: BezierSpline, Y: jnp.array, param: jnp.array) -> jnp.array:
+def gradSumOfSquared(B: BezierSpline, Y: jnp.ndarray, param: jnp.ndarray) -> jnp.ndarray:
     """Compute the gradient of the sum of squared distances from a manifold-valued Bézier spline to time labeled data
     points.
     :param B: Bézier spline with K segments
@@ -227,7 +254,7 @@ def gradSumOfSquared(B: BezierSpline, Y: jnp.array, param: jnp.array) -> jnp.arr
     return grad_constraints(B, grad_E)
 
 
-def grad_constraints(B: BezierSpline, grad_E: jnp.array) -> jnp.array:
+def grad_constraints(B: BezierSpline, grad_E: jnp.ndarray) -> jnp.ndarray:
     """Compute the gradient of the sum of squared distances from a manifold-valued Bézier spline to time labeled data
     points.
     :param B: Bézier spline with K segments
@@ -270,7 +297,7 @@ def grad_constraints(B: BezierSpline, grad_E: jnp.array) -> jnp.array:
     return jax.lax.cond(B.iscycle, lambda g: do_cyclic(g), lambda g: g, grad_E)
 
 
-def segments_from_data(Y: jnp.array, param: jnp.array) -> Tuple[List[jnp.array], List[jnp.array]]:
+def segments_from_data(Y: jnp.ndarray, param: jnp.ndarray) -> Tuple[List[jnp.array], List[jnp.array]]:
     """Divide data according to segments
 
     :param Y: array of values

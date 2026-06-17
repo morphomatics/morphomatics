@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2025 Zuse Institute Berlin                                   #
+#   Copyright (C) 2026 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -19,7 +19,7 @@ from morphomatics.manifold import Manifold, Metric, LieGroup
 class PowerManifold(Manifold):
     """ Product manifold M^k consisting of k copies of a single (atom) manifold M """
 
-    def __init__(self, M: Manifold, k: int, metric_weights: jnp.array = None, structure: str = 'Product'):
+    def __init__(self, M: Manifold, k: int, metric_weights: jnp.ndarray = None, structure: str = 'Product'):
         assert metric_weights is None or len(metric_weights) == k
 
         point_shape = tuple([k, *M.point_shape])
@@ -55,7 +55,7 @@ class PowerManifold(Manifold):
         """Return the power k"""
         return self._k
 
-    def ith_component(self, x: jnp.array, i: int) -> jnp.array:
+    def ith_component(self, x: jnp.ndarray, i: int) -> jnp.ndarray:
         """Projection to the i-th element for both points and tangent vectors of M^k"""
         return x[i]
 
@@ -70,14 +70,14 @@ class PowerManifold(Manifold):
         self._connec = MetricStructure if self.atom_manifold.connec is not None else None
         self._group = GroupStructure if self.atom_manifold.group is not None else None
 
-    def rand(self, key: jax.Array) -> jnp.array:
+    def rand(self, key: jax.Array) -> jnp.ndarray:
         """ Random element of the power manifold
         :param key: a PRNG key
         """
         subkeys = jax.random.split(key, self.k)
         return jax.vmap(self.atom_manifold.rand)(subkeys)
 
-    def randvec(self, p: jnp.array, key: jax.Array) -> jnp.array:
+    def randvec(self, p: jnp.ndarray, key: jax.Array) -> jnp.ndarray:
         """Random vector in the tangent space of the point p
 
         :param p: element of M^k
@@ -87,10 +87,16 @@ class PowerManifold(Manifold):
         subkeys = jax.random.split(key, self.k)
         return jax.vmap(self.atom_manifold.randvec)(p, subkeys)
 
-    def zerovec(self) -> jnp.array:
+    def zerovec(self) -> jnp.ndarray:
         """Zero vector in any tangent space
         """
         return jnp.zeros(self.point_shape)
+
+    def tangent_coords(self, p, v) -> jnp.ndarray:
+        """Coordinates of a tangent vector v at p
+        """
+        c = jax.vmap(self.atom_manifold.tangent_coords)(p, v)
+        return c.reshape(-1)
 
     def proj(self, p, z):
         """Project ambient vector onto the power manifold
@@ -115,13 +121,13 @@ class PowerManifold(Manifold):
             return self._M.atom_manifold
 
         @property
-        def weights(self) -> jnp.array:
+        def weights(self) -> jnp.ndarray:
             return self._M.metric_weights
 
         #### metric interface ####
 
         @property
-        def typicaldist(self) -> jnp.array:
+        def typicaldist(self) -> jnp.ndarray:
             """Typical distance in the product manifold"""
             if self.weights is None:
                 d = jax.vmap(lambda _: self.atom_mfd.metric.typicaldist ** 2)(jnp.arange(self._M.k))
@@ -130,7 +136,7 @@ class PowerManifold(Manifold):
 
             return jnp.sqrt(jnp.sum(d))
 
-        def inner(self, p: jnp.array, v: jnp.array, w: jnp.array) -> jnp.array:
+        def inner(self, p: jnp.ndarray, v: jnp.ndarray, w: jnp.ndarray) -> jnp.ndarray:
             """Product metric
 
             :param p: element of M^k
@@ -144,7 +150,7 @@ class PowerManifold(Manifold):
 
             return jnp.sum(i)
 
-        def dist(self, p: jnp.array, q: jnp.array) -> jnp.array:
+        def dist(self, p: jnp.ndarray, q: jnp.ndarray) -> jnp.ndarray:
             """Distance function of the product metric
 
             :param p: element of M^k
@@ -154,7 +160,7 @@ class PowerManifold(Manifold):
 
             return jnp.sqrt(self.squared_dist(p, q))
 
-        def squared_dist(self, p: jnp.array, q: jnp.array) -> jnp.array:
+        def squared_dist(self, p: jnp.ndarray, q: jnp.ndarray) -> jnp.ndarray:
             """Squared distance function of the product metric
 
             :param p: element of M^k
@@ -167,7 +173,7 @@ class PowerManifold(Manifold):
 
             return jnp.sum(d2)
 
-        def flat(self, p: jnp.array, v: jnp.array) -> jnp.array:
+        def flat(self, p: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
             """Lower vector v at p with the metric
 
             :param p: element of M^k
@@ -180,7 +186,7 @@ class PowerManifold(Manifold):
 
             return dv
 
-        def sharp(self, p: jnp.array, dv: jnp.array) -> jnp.array:
+        def sharp(self, p: jnp.ndarray, dv: jnp.ndarray) -> jnp.ndarray:
             """Raise covector dv at p with the metric
 
             :param p: element of M^k
@@ -193,7 +199,7 @@ class PowerManifold(Manifold):
 
             return dv
 
-        def adjJacobi(self, p: jnp.array, q: jnp.array, t: float, v: jnp.array) -> jnp.array:
+        def adjJacobi(self, p: jnp.ndarray, q: jnp.ndarray, t: float, v: jnp.ndarray) -> jnp.ndarray:
             """
             Evaluates an adjoint Jacobi field along the geodesic gam from p to q. X is a vector at gam(t)
 
@@ -208,7 +214,7 @@ class PowerManifold(Manifold):
             else:
                 raise NotImplementedError('This function has not been implemented yet for non-trivial metric weights.')
 
-        def egrad2rgrad(self, p: jnp.array, z: jnp.array) -> jnp.array:
+        def egrad2rgrad(self, p: jnp.ndarray, z: jnp.ndarray) -> jnp.ndarray:
             """Transform the Euclidean gradient of a function into the corresponding Riemannian gradient, i.e.,
             directions pointing away from the manifold are removed
 
@@ -228,7 +234,7 @@ class PowerManifold(Manifold):
         # (This can, e.g., be deduced from the Koszul formula.) Therefore, all notions that only depend on the metric
         # implicitly through the connection are not influenced by metric weights.
 
-        def exp(self, p: jnp.array, v: jnp.array) -> jnp.array:
+        def exp(self, p: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
             """Riemannian exponential
 
             :param p: element of M^k
@@ -239,7 +245,7 @@ class PowerManifold(Manifold):
 
         retr = exp
 
-        def log(self, p: jnp.array, q: jnp.array) -> jnp.array:
+        def log(self, p: jnp.ndarray, q: jnp.ndarray) -> jnp.ndarray:
             """Riemannian logarithm
 
             :param p: element of M^k
@@ -248,7 +254,7 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self.atom_mfd.connec.log)(p, q)
 
-        def geopoint(self, p: jnp.array, q: jnp.array, t: float) -> jnp.array:
+        def geopoint(self, p: jnp.ndarray, q: jnp.ndarray, t: float) -> jnp.ndarray:
             """Geodesic map
 
             :param p: element of M^k
@@ -258,7 +264,7 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self.atom_mfd.connec.geopoint, (0, 0, None))(p, q, t)
 
-        def transp(self, p: jnp.array, q: jnp.array, v: jnp.array) -> jnp.array:
+        def transp(self, p: jnp.ndarray, q: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
             """Parallel transport map
 
             :param p: element of M^k
@@ -268,7 +274,7 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self.atom_mfd.connec.transp)(p, q, v)
 
-        def pairmean(self, p: jnp.array, q: jnp.array) -> jnp.array:
+        def pairmean(self, p: jnp.ndarray, q: jnp.ndarray) -> jnp.ndarray:
             """Pair-wise mean
 
             :param p: element of M^k
@@ -277,7 +283,7 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self.atom_mfd.connec.pairmean)(p, q)
 
-        def curvature_tensor(self, p: jnp.array, v: jnp.array, w: jnp.array, x: jnp.array) -> jnp.array:
+        def curvature_tensor(self, p: jnp.ndarray, v: jnp.ndarray, w: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
             """Curvature tensor
 
             :param p: element of M^k
@@ -288,7 +294,7 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self.atom_mfd.connec.curvature_tensor)(p, v, w, x)
 
-        def jacobiField(self, p: jnp.array, q: jnp.array, t: float, X: jnp.array) -> jnp.array:
+        def jacobiField(self, p: jnp.ndarray, q: jnp.ndarray, t: float, X: jnp.ndarray) -> jnp.ndarray:
             """
             Evaluates a Jacobi field (with boundary conditions gam'(0) = X, gam'(1) = 0) along the geodesic gam from p to
             q.
@@ -319,12 +325,12 @@ class PowerManifold(Manifold):
             return self._M.atom_manifold
 
         @property
-        def identity(self) -> jnp.array:
+        def identity(self) -> jnp.ndarray:
             """Identity element"""
 
             return jax.vmap(lambda _: self.atom_mfd.group.identity)(jnp.arange(self._M.k))
 
-        def coords(self, v: jnp.array) -> jnp.array:
+        def coords(self, v: jnp.ndarray) -> jnp.ndarray:
             """Coordinate map for the tangent space at the identity
 
             :param v: tangent vector at the identity
@@ -336,7 +342,7 @@ class PowerManifold(Manifold):
         def coords_inv(self, X):
             return jax.vmap(self.atom_mfd.group.coords_inv)(X.reshape(self._M.k, -1))
 
-        def bracket(self, v: jnp.array, w: jnp.array) -> jnp.array:
+        def bracket(self, v: jnp.ndarray, w: jnp.ndarray) -> jnp.ndarray:
             """Lie bracket in Lie algebra
 
             :param v: tangent vector at the identity
@@ -345,7 +351,7 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self.atom_mfd.group.bracket)(v, w)
 
-        def lefttrans(self, g: jnp.array, f: jnp.array) -> jnp.array:
+        def lefttrans(self, g: jnp.ndarray, f: jnp.ndarray) -> jnp.ndarray:
             """Left translation of g by f
 
             :param g: element of the Lie group M^k
@@ -354,7 +360,7 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self.atom_mfd.group.lefttrans)(g, f)
 
-        def righttrans(self, g: jnp.array, f: jnp.array) -> jnp.array:
+        def righttrans(self, g: jnp.ndarray, f: jnp.ndarray) -> jnp.ndarray:
             """Right translation of g by f
 
             :param g: element of the Lie group M^k
@@ -363,7 +369,7 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self.atom_mfd.group.righttrans)(g, f)
 
-        def inverse(self, g: jnp.array) -> jnp.array:
+        def inverse(self, g: jnp.ndarray) -> jnp.ndarray:
             """Inverse map of the Lie group
 
             :param g: element of the Lie group M^k
@@ -371,7 +377,7 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self.atom_mfd.group.inverse)(g)
 
-        def exp(self, v: jnp.array) -> jnp.array:
+        def exp(self, v: jnp.ndarray) -> jnp.ndarray:
             """Group exponential
 
             :param v: tangent vector at e
@@ -381,7 +387,7 @@ class PowerManifold(Manifold):
 
         retr = exp
 
-        def log(self, g: jnp.array) -> jnp.array:
+        def log(self, g: jnp.ndarray) -> jnp.ndarray:
             """Group logarithm
 
             :param g: element of M^k
@@ -389,7 +395,7 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self.atom_mfd.group.log)(g)
 
-        def adjrep(self, g: jnp.array, v: jnp.array) -> jnp.array:
+        def adjrep(self, g: jnp.ndarray, v: jnp.ndarray) -> jnp.ndarray:
             """Adjoint representation of g applied to the tangent vector v at the identity
 
             :param g: element of the Lie group M^k
@@ -398,7 +404,7 @@ class PowerManifold(Manifold):
             """
             return jax.vmap(self.atom_mfd.group.adjrep)(g, v)
 
-        def jacobiField(self, g: jnp.array, f: jnp.array, t: float, X: jnp.array) -> jnp.array:
+        def jacobiField(self, g: jnp.ndarray, f: jnp.ndarray, t: float, X: jnp.ndarray) -> jnp.ndarray:
             """
             Evaluates a Jacobi field (with boundary conditions gam'(0) = X, gam'(1) = 0) along the geodesic gam of the
             CCS connection from g to f.

@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2025 Zuse Institute Berlin                                   #
+#   Copyright (C) 2026 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -55,16 +55,12 @@ class PrincipalGeodesicAnalysis(object):
 
         if dual:
             # setup dual-covariance operator / (scaled) Gram matrix
-            idx = jnp.triu_indices(N)
-            C = jnp.zeros((N,N))
-            C = C.at[idx].set(
-                jax.vmap(mfd.metric.inner, in_axes=(None, 0, 0))(mu, v[idx[0]], v[idx[1]]) / N)
-            C = (C.T + C) / (jnp.ones((N,N))+jnp.eye(N))
+            C = jax.lax.map(lambda v_i: jax.jit(jax.vmap(mfd.metric.inner, in_axes=(None, None, 0)))(mu, v_i, v), v) / N
 
             variances, modes, coeffs = self.compute_dual(C, v)
         else:
             # setup covariance operator
-            v = jax.vmap(mfd.metric.flat, in_axes=(None, 0))(mu, v)
+            v = jax.vmap(jax.jit(mfd.metric.flat), in_axes=(None, 0))(mu, v)
             v_vec = v.reshape(N, -1)
             C = 1/N * v_vec.T @ v_vec
 
@@ -75,15 +71,16 @@ class PrincipalGeodesicAnalysis(object):
         self._coeffs = coeffs
 
     def compute_cov(self, C, v):
+        N = C.shape[0]
         d = self.mfd.dim
         # decompose
         vals, vecs = jnp.linalg.eigh(C)
 
         # set variance and modes
         n = jnp.sum(vals > 1e-6)
-        e = d - n - 1 if n<d else -d-1
+        e = N - n - 1 if n<d else -d-1
         variances = vals[:e:-1]
-        modes = vecs[:,:e:-1].T.reshape((n,) + self.mfd.point_shape)
+        modes = vecs[:,:e:-1].T.reshape((-1,) + self.mfd.point_shape)
 
         coeffs = v @ vecs[:,:e:-1]
 

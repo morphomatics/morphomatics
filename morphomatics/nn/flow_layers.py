@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2025 Zuse Institute Berlin                                   #
+#   Copyright (C) 2026 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -17,7 +17,7 @@ import jax.numpy as jnp
 from jax.scipy.sparse.linalg import bicgstab
 
 import jraph
-from flax import linen as nn
+from flax import nnx
 
 from morphomatics.manifold import Manifold, PowerManifold
 from morphomatics.opt import RiemannianNewtonRaphson
@@ -25,7 +25,7 @@ from morphomatics.graph.operators import mfdg_laplace
 from morphomatics.nn.tangent_layers import TangentMLP
 
 
-class FlowLayer(nn.Module):
+class FlowLayer(nnx.Module):
     """
     Graph flow layer for graphs with manifold-valued features. The flow equation is integrated explicitly by default,
     but an implicit scheme is also available.
@@ -37,30 +37,41 @@ class FlowLayer(nn.Module):
 
     for a detailed description.
 
-    Inputs:
-    :param M: manifold in which the features lie
-    :param n_steps: number of explicit steps to approximate the flow with explicit Euler
-    :param implicit: boolean indicating whether to use implicit or explicit Euler integration
-    :param max_step_length: maximum step size for Euler integration
-
     Note: Too long Euler steps can lead to numerical instabilities with some manifolds, e.g., the hyperbolic space.
-    In this case, a maximal step length should be ued.
-
+    In this case, a maximal step length should be used.
     """
 
-    M: Manifold
-    n_steps: int = 1
-    implicit: bool = False
-    max_step_length: float = jnp.inf
-    t_init: Callable = lambda *args: nn.initializers.truncated_normal(stddev=1.)(*args) + 1.
-    alpha_init: Callable = lambda *args: nn.initializers.truncated_normal(stddev=1.)(*args) + 1.
-    beta_init: Callable = lambda *args: nn.initializers.constant(1.)(*args)
+    def __init__(self,
+                 M: Manifold,
+                 n_channels: int,
+                 rngs: nnx.Rngs,
+                 n_steps: int = 1,
+                 implicit: bool = False,
+                 max_step_length: float = jnp.inf):
+        """
+        Inputs:
+        :param M: manifold in which the features lie
+        :param n_channels: number of (in and out) channels
+        :param rngs: random number generator
+        :param n_steps: number of explicit steps to approximate the flow with explicit Euler
+        :param implicit: boolean indicating whether to use implicit or explicit Euler integration
+        :param max_step_length: maximum step size for Euler integration
+        """
+
+        self.M = M
+        self.n_channels = n_channels
+        self.n_steps = n_steps
+        self.implicit = implicit
+        self.max_step_length = max_step_length
+        self.t = nnx.Param(nnx.initializers.truncated_normal(stddev=1)(rngs.param(), shape=(n_channels,)) + 1.)
+        self.alpha = nnx.Param(nnx.initializers.truncated_normal(stddev=1)(rngs.param(), shape=(n_channels,)) + 1.)
+        self.beta = nnx.Param(jnp.ones((n_channels,)))
 
     def _single_euler_step(self,
                            G: jraph.GraphsTuple,
                            time: jnp.ndarray,
                            alpha: jnp.ndarray,
-                           beta: jnp.array) -> jraph.GraphsTuple:
+                           beta: jnp.ndarray) -> jraph.GraphsTuple:
         """Single step of the explicit Euler method for diffusion
 
         :param G: graph with manifold valued vectors as features; length of vector must equal the flow layer width
@@ -133,7 +144,6 @@ class FlowLayer(nn.Module):
 
         return G._replace(nodes=x_next.reshape(n, c, *shape))
 
-    @nn.compact
     def __call__(self, G: jraph.GraphsTuple) -> jraph.GraphsTuple:
         """
         :param G: graphs tuple with features of shape: num_nodes * num_channels * point_shape
@@ -143,16 +153,10 @@ class FlowLayer(nn.Module):
         """
         step_method = self._implicit_euler_step if self.implicit else self._single_euler_step
 
-        width = G.nodes.shape[1]  # number of channels
-        ####################
-        t = self.param("t_sqrt", self.t_init, (width,), G.nodes.dtype)
-        alpha = self.param("alpha_sqrt", self.alpha_init, (width,), G.nodes.dtype)
-        beta = self.param("beta_sqrt", self.beta_init, (width,), G.nodes.dtype)
-
         # map to non-negative parameters
-        t = t ** 2
-        alpha = alpha ** 2
-        beta = beta ** 2
+        t = self.t ** 2
+        alpha = self.alpha ** 2
+        beta = self.beta ** 2
 
         def step(graph, _):
             graph = step_method(graph, t / self.n_steps, alpha, beta)
@@ -163,43 +167,50 @@ class FlowLayer(nn.Module):
         return G
 
 
-class MfdGcnBlock(nn.Module):
+class MfdGcnBlock(nnx.Module):
     """
     Manifold convolution network block as proposed in
     M. Hanik, G, Steidl, C. v. Tycowicz. "Manifold GCN: Diffusion-based Convolutional Neural Network for
     Manifold-valued Graphs" (https://arxiv.org/abs/2401.14381)
 
     An explicit skip connection can be added that attaches the input to the output as additional channels.
-    Note: If skip connections between each flow-tMLP unit are wanted, use several blocks with only one layer.
+    Note: If skip connections between each flow-tMLP unit are wanted, use several blocks with only one layer."""
 
-    :param M: manifold constituting the signal domain
-    :param channel_sizes: sequence of channel sizes
-    :param n_steps: number of Euler steps that are performed in the flow layer
-    :param implicit: boolean indicating whether to use implicit or explicit Euler integration
-    :param max_step_length: maximum step size for Euler integration (see the flow layer)
-    :param explicit_skip: boolean indicating whether additionally to perform an explicit skip connection
-    :param inputs_are_copies: when true, only the first input channel is passed through by the skip connection
-    """
+    def __init__(self,
+                 M: Manifold,
+                 channel_sizes: Iterable[int],
+                 rngs: nnx.Rngs,
+                 n_steps: int = 1,
+                 implicit: bool = False,
+                 max_step_length: float = jnp.inf,
+                 explicit_skip: bool = False,
+                 inputs_are_copies: bool = False):
+        """Input:
+        :param M: manifold constituting the signal domain
+        :param channel_sizes: sequence of channel sizes
+        :param rngs: random number generator
+        :param n_steps: the number of Euler steps that are performed in the flow layer
+        :param implicit: boolean indicating whether to use implicit or explicit Euler integration
+        :param max_step_length: maximum step size for Euler integration (see the flow layer)
+        :param explicit_skip: boolean indicating whether additionally to perform an explicit skip connection
+        :param inputs_are_copies: when true, only the first input channel is passed through by the skip connection
+        """
+        self.M = M
+        self.n_in = channel_sizes[0]
+        self.n_out = channel_sizes[-1]
+        self.explicit_skip = explicit_skip
+        self.inputs_are_copies = inputs_are_copies
 
-    M: Manifold
-    channel_sizes: Iterable[int]
-    n_steps: int = 1
-    implicit: bool = False
-    max_step_length: float = jnp.inf
-    explicit_skip: bool = False
-    inputs_are_copies: bool = False
-
-    def setup(self):
         layers = []
-        channel_sizes = tuple(self.channel_sizes)
-        for i, channel_size in enumerate(channel_sizes):
+        channel_sizes = tuple(channel_sizes)
+        for size_0, size_1 in zip(channel_sizes, channel_sizes[1:]):
             layers.append(
                 (
-                    FlowLayer(self.M, self.n_steps, self.implicit, self.max_step_length),
-                    TangentMLP(self.M, (channel_size,))
+                    FlowLayer(M, size_0, rngs, n_steps, implicit, max_step_length),
+                    TangentMLP(M, (size_0, size_1), rngs)
                 )
             )
-        self.layers = tuple(layers)
+        self.layers = layers
 
     def __call__(self, G: jraph.GraphsTuple) -> jraph.GraphsTuple:
         """

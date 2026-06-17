@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2025 Zuse Institute Berlin                                   #
+#   Copyright (C) 2026 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -24,7 +24,7 @@ from morphomatics.manifold import Manifold, Connection, Metric, LieGroup
 class ProductManifold(Manifold):
     """ Product manifold """
 
-    def __init__(self, mfds: Sequence[Manifold], weights: jnp.array = None, structure: str = 'Product'):
+    def __init__(self, mfds: Sequence[Manifold], weights: jnp.ndarray = None, structure: str = 'Product'):
         assert weights is None or len(weights) == len(mfds)
 
         point_shape = (np.sum([np.prod(m.point_shape) for m in mfds]),)
@@ -54,7 +54,7 @@ class ProductManifold(Manifold):
         return self._manifolds
 
     @property
-    def weights(self) -> jnp.array:
+    def weights(self) -> jnp.ndarray:
         """Return weights of product metric. """
         return self._weights
 
@@ -84,7 +84,7 @@ class ProductManifold(Manifold):
             o += l
         return p
 
-    def entangle(self, p: Sequence[jnp.array]) -> jnp.array:
+    def entangle(self, p: Sequence[jnp.ndarray]) -> jnp.ndarray:
         """
         Inverse of #disentangle().
         :arg p: list of elements in #manifolds
@@ -92,7 +92,7 @@ class ProductManifold(Manifold):
         """
         return jnp.concatenate([c.ravel() for c in p])
 
-    def rand(self, key: jax.Array) -> jnp.array:
+    def rand(self, key: jax.Array) -> jnp.ndarray:
         """ Random element of the product manifold
         :param key: a PRNG key
         """
@@ -102,7 +102,7 @@ class ProductManifold(Manifold):
             p.append(mfd.rand(k))
         return self.entangle(p)
 
-    def randvec(self, p: jnp.array, key: jax.Array) -> jnp.array:
+    def randvec(self, p: jnp.ndarray, key: jax.Array) -> jnp.ndarray:
         """Random vector in the tangent space of the point pu
 
         :param p: element of M^k
@@ -115,10 +115,18 @@ class ProductManifold(Manifold):
             v.append(mfd.randvec(x, k))
         return self.entangle(v)
 
-    def zerovec(self) -> jnp.array:
+    def zerovec(self) -> jnp.ndarray:
         """Zero vector in any tangent space
         """
         return jnp.zeros(self.point_shape)
+
+    def tangent_coords(self, P, V) -> jnp.ndarray:
+        """Coordinates of a tangent vector v at p
+        """
+        x = []
+        for mfd, p, v in zip(self.manifolds, P, V):
+            x.append(mfd.tangent_coords(self.disentangle(p), self.disentangle(v)))
+        return self.entangle(x)
 
     def proj(self, p, z):
         """Project ambient vector onto the product manifold

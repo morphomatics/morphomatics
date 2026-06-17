@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2025 Zuse Institute Berlin                                   #
+#   Copyright (C) 2026 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -127,7 +127,7 @@ class HyperbolicSpace(Manifold):
 
         def squared_dist(self, p, q):
             # in theory minkowski_inner(p, q) < -1 always holds, but for numerical reasons we clip
-            mink_inner_neg = jnp.clip(-HyperbolicSpace.minkowski_inner(p, q), a_min=1)
+            mink_inner_neg = jnp.clip(-HyperbolicSpace.minkowski_inner(p, q), min=1)
 
             def trunc_dist_sq(x):
                 # 4th order approximation of arccosh**2 around 1
@@ -154,7 +154,7 @@ class HyperbolicSpace(Manifold):
                 return p+X + 1/6 * n2 * (3*p+X) + 1/120 * n2**2 * (5*p+X)
 
             sqnorm_X = self.inner(p, X, X)
-            sqnorm_X = jnp.clip(sqnorm_X, a_min=0.)
+            sqnorm_X = jnp.clip(sqnorm_X, min=0.)
             
             p = jax.lax.cond(sqnorm_X < 1e-6, trunc_exp, full_exp, sqnorm_X)
             

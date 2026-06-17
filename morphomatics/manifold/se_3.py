@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2025 Zuse Institute Berlin                                   #
+#   Copyright (C) 2026 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -104,6 +104,14 @@ class SE3(Manifold):
        P = P.at[3, 3].set(1.)
        return P
 
+    def tangent_coords(self, g, X):
+        """Coordinate map for the tangent space at the identity. The footpoint is only there for compatibility with the
+        general manifold case."""
+        x123 = jnp.stack((X[0, 1], X[0, 2], X[1, 2])) * 2 ** .5
+        x456 = X[:3, 3].transpose()
+        x = jnp.concatenate((x123, x456), axis=0)
+        return x.reshape((-1, 1), order='F')
+
     class GroupStructure(GLGroupStructure):
 
         def __init__(self, M: Manifold):
@@ -124,11 +132,7 @@ class SE3(Manifold):
             # return GLp4.group.inverse(P)
 
         def coords(self, X):
-            """Coordinate map for the tangent space at the identity."""
-            x123 = jnp.stack((X[0, 1], X[0, 2], X[1, 2])) * 2 ** .5
-            x456 = X[:3, 3].transpose()
-            x = jnp.concatenate((x123, x456), axis=0)
-            return x.reshape((-1, 1), order='F')
+            return self._M.tangent_coords(None, X)
 
         def coords_inv(self, X):
             x123 = X[:3]

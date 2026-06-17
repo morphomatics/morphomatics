@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2025 Zuse Institute Berlin                                   #
+#   Copyright (C) 2026 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -32,8 +32,8 @@ class BiinvariantRegression(object):
 
     """
 
-    def __init__(self, G: Manifold, Y: jnp.array, param: jnp.array, P_init: jnp.array = None,
-                 residual_scale: jnp.array = None, max_iter: int = 100, min_norm: float = 1e-6, step_size: float = 0.1,
+    def __init__(self, G: Manifold, Y: jnp.ndarray, param: jnp.ndarray, P_init: jnp.ndarray = None,
+                 residual_scale: jnp.ndarray = None, max_iter: int = 100, min_norm: float = 1e-6, step_size: float = 0.1,
                  verbose: bool = True):
         """
         :param G: Lie group
@@ -63,17 +63,15 @@ class BiinvariantRegression(object):
         P, self.conv, e = BiinvariantRegression.fit(G, Y, param, P_init, residual_scale,
                                                     max_iter, min_norm, step_size)
 
-        # jax.debug.print("final error: {}".format(e))
         if verbose and not self.conv:
             print(f'No convergence WARNING: final error {e:.2E} is higher than min_norm {min_norm:.2E}.')
 
         self._geodesic = BezierSpline(G, P[None])
 
-
     @staticmethod
     @jax.jit
-    def fit(G: Manifold, Y: jnp.array, param: jnp.array, P_init: jnp.array, residual_scale: jnp.array, max_iter: int,
-            min_norm: float, step_size: float) -> jnp.array:
+    def fit(G: Manifold, Y: jnp.ndarray, param: jnp.ndarray, P_init: jnp.ndarray, residual_scale: jnp.ndarray,
+            max_iter: int, min_norm: float, step_size: float) -> jnp.ndarray:
         """Fit a geodesic to given data.
 
         :param G: Lie group
@@ -126,7 +124,6 @@ class BiinvariantRegression(object):
 
         return opt, conv, err
 
-
     @property
     def trend(self) -> BezierSpline:
         """
@@ -135,10 +132,13 @@ class BiinvariantRegression(object):
         """
         return self._geodesic
 
+    def eval(self, t: float) -> jnp.ndarray:
+        return self._geodesic.eval(t)
+
 
 class BiinvariantLocalGeodesicRegression(object):
 
-    def __init__(self, G: Manifold, Y: jnp.array, param: jnp.array, kernel: str = "gauss", bandwidth: float = 0.2,
+    def __init__(self, G: Manifold, Y: jnp.ndarray, param: jnp.ndarray, kernel: str = "gauss", bandwidth: float = 0.2,
                  max_iter: int = 500, min_norm: float = 1e-6, step_size: float = 0.1):
 
         self._G = G
@@ -157,7 +157,7 @@ class BiinvariantLocalGeodesicRegression(object):
         self.min_norm = min_norm
         self.step_size = step_size
 
-    def eval(self, t: float) -> jnp.array:
+    def eval(self, t: float) -> jnp.ndarray:
         res_factors = self._kernel(jnp.abs(t - self._param))
         geodesic_regression = BiinvariantRegression(self._G, self._Y, self._param, None,
                                                     res_factors,
@@ -193,11 +193,11 @@ def R2statistic(reg: BiinvariantRegression | BiinvariantLocalGeodesicRegression)
 
 # kernels functions
 
-def gauss_kernel(par: jnp.array) -> jnp.array:
+def gauss_kernel(par: jnp.ndarray) -> jnp.ndarray:
     return jax.vmap(lambda t: 1 / jnp.sqrt(2 * jnp.pi) * jnp.exp(-t ** 2 / 2))(par)
 
-def cauchy_kernel(par: jnp.array) -> jnp.array:
+def cauchy_kernel(par: jnp.ndarray) -> jnp.ndarray:
     return jax.vmap(lambda t: 1 / (jnp.pi * (1 + t ** 2)))(par)
 
-def picard_kernel(par: jnp.array) -> jnp.array:
+def picard_kernel(par: jnp.ndarray) -> jnp.ndarray:
     return jax.vmap(lambda t: 1 / 2 * jnp.exp(-jnp.abs(t)))(par)

@@ -3,7 +3,7 @@
 #   This file is part of the Morphomatics library                              #
 #       see https://github.com/morphomatics/morphomatics                       #
 #                                                                              #
-#   Copyright (C) 2025 Zuse Institute Berlin                                   #
+#   Copyright (C) 2026 Zuse Institute Berlin                                   #
 #                                                                              #
 #   Morphomatics is distributed under the terms of the MIT License.            #
 #       see $MORPHOMATICS/LICENSE                                              #
@@ -24,8 +24,8 @@ class RiemannianSteepestDescent(object):
 
     @staticmethod
     @partial(jax.jit, static_argnames=['f'])
-    def fixedpoint(M: Manifold, f: Callable[[jnp.array], float], init: jnp.array,
-                   stepsize=1., maxiter=100, mingradnorm=1e-6) -> jnp.array:
+    def fixedpoint(M: Manifold, f: Callable[[jnp.array], float], init: jnp.ndarray,
+                   stepsize=1., maxiter=100, mingradnorm=1e-6) -> jnp.ndarray:
         """
         Compute minimizer of f.
         :param M: manifold search space
