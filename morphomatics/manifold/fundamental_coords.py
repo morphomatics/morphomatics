@@ -204,12 +204,11 @@ class FundamentalCoords(ShapeSpace):
 
         Dijk = R.copy()
         n_iter = 0
-        v = np.asarray(self.ref.v.copy())
-        vk = np.asarray(self.ref.v.copy())
+        v = np.array(self.ref.v)
         sqrt_tol = np.sqrt(self.integration_tol)
         while n_iter < self.integration_iter:
-        ################################################################################################################
-        # global step ##################################################################################################
+            ################################################################################################################
+            # global step ##################################################################################################
 
             # setup gradient matrix and solve Poisson system
             D = np.einsum('...ij,...kj', U, R)  # <-- from left polar decomp.
@@ -220,8 +219,8 @@ class FundamentalCoords(ShapeSpace):
             errCoord = np.amax(np.abs((v - vk)))
             errCoordTol = sqrt_tol * (1.0 + np.amax(np.abs((vk))))
 
-        ################################################################################################################
-        # local step ###################################################################################################
+            ################################################################################################################
+            # local step ###################################################################################################
             if (n_iter + 1 == self.integration_iter) or (errCoord < errCoordTol):
                 break
 
@@ -243,9 +242,8 @@ class FundamentalCoords(ShapeSpace):
             n_iter += 1
 
         # orient w.r.t. fixed frame and move to fixed node
-        v[:] = (self.ref_frame_field[self.init_face] @ FundamentalCoords.frame_of_face(v, self.ref.f, [self.init_face]).T @ v[:].T).T
+        v = (self.ref_frame_field[self.init_face] @ FundamentalCoords.frame_of_face(v, self.ref.f, [self.init_face]).T @ v.T).T
         v += self.ref.v[self.init_vert] - v[self.init_vert]
-        # print("v:\n", v)
         return v
 
     @property
