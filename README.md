@@ -11,8 +11,12 @@ Detailed information and tutorials can be found at https://morphomatics.github.i
 
 ## Installation
 
-Morphomatics can be installed directly from github using the following command:
+Morphomatics can be installed directly from PyPi
+```bash
+pip install morphomatics
 ```
+Alternatively, it can be installed from github using the following command:
+```bash
 pip install git+https://github.com/morphomatics/morphomatics.git#egg=morphomatics
 ```
 For instructions on how to set up `jaxlib`, please refer to the [JAX install guide](https://github.com/google/jax#installation).

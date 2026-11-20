@@ -18,3 +18,4 @@ from .riemannian_regression import RiemannianRegression
 from .riemannian_dissimilarity_measures import RiemannianDissimilarityMeasures
 from .biinvariant_dissimilarity_measures import BiinvariantDissimilarityMeasures
 from .biinvariant_regression import BiinvariantRegression, BiinvariantLocalGeodesicRegression
+from .diffeomorphic_regression import DiffeomorphicRegression

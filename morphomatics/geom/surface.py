@@ -12,13 +12,17 @@
 
 import numpy as np
 from scipy import sparse
+
+from jax.tree_util import register_pytree_node_class
+import jax.numpy as jnp
+
 from . import memoize, gradient_matrix_ambient
 
-
+@register_pytree_node_class
 class Surface(object):
     """ Triangular surface geom. """
 
-    def __init__(self, v, f):
+    def __init__(self, v: jnp.ndarray, f: jnp.ndarray):
         """
         :arg v: #v-by-dim array of vertex coordinate
         :arg f: #f-by-3 array of triangles (each given as indices into \a v)
@@ -27,8 +31,17 @@ class Surface(object):
         self._cache_v = dict()
         self._cache_f = dict()
 
-        self.v = np.asarray(v).astype(np.double, copy=False)
-        self.f = np.asarray(f)
+        self.v = jnp.asarray(v).astype(np.double, copy=False)
+        self.f = jnp.asarray(f)
+
+    def tree_flatten(self):
+        children = self.v
+        aux_data = self.f.tolist()
+        return (children, aux_data)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return Surface(children, jnp.asarray(aux_data))
 
     @property
     def v(self):

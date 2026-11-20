@@ -18,19 +18,6 @@ import numpy as np
 
 from morphomatics.geom.surface import Surface
 
-class LazyKernel(NamedTuple):
-    """Lazy operations with the kernel matrix."""
-    p: jax.Array
-    q: jax.Array
-    kernel: Callable[[jax.Array, jax.Array], float]
-
-    def __matmul__(self, v: jax.Array) -> jax.Array:
-        """:return product of kernel matrix with v"""
-        init = jnp.zeros((len(self.p),) + jnp.atleast_2d(v).shape[1:])
-        Ki = jax.vmap(self.kernel, (0, None))
-        f = lambda carry, qv: (carry + jnp.einsum('i,...->i...', Ki(self.p, qv[0]), qv[1]), None)
-        return jax.lax.scan(f, init, (self.q, v))[0]
-
 def align(src, ref):
     """ (Constrained) Procrustes alignment of src to ref using Kabsch algorithm
     :arg src: n-by-3 array of vertex coordinates of source object

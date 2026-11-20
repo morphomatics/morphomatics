@@ -73,8 +73,8 @@ class ProductManifold(Manifold):
 
     def disentangle(self, c):
         """
-        :arg c: vectorized fundamental coords. (tangent vectors)
-        :returns: de-vectorized tuple of rotations and stretches (skew-sym. and sym. matrices)
+        :arg c: vectorized coords.
+        :returns: de-vectorized tuple of per-manifold coordinates
         """
         p = []
         o = 0

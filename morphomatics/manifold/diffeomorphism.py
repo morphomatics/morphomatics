@@ -16,8 +16,8 @@ import jax.numpy as jnp
 
 from jax.experimental.ode import odeint
 
-from morphomatics.manifold import Manifold, LieGroup
-from .util import LazyKernel
+from morphomatics.manifold import Manifold, LieGroup, Metric
+from morphomatics.geom.misc import LazyKernel
 
 
 class Diffeomorphism(Manifold):
@@ -29,7 +29,7 @@ class Diffeomorphism(Manifold):
     given by integrating the smooth vector field obtained from the momentum by (kernel) smoothing.
     """
 
-    def __init__(self, control_pts: jax.Array, scale: float = 0.1, structure="Group"):
+    def __init__(self, control_pts: jax.Array, scale: float = 0.1, structure="LDDMM"):
         """Initialize the Diffeomorphism manifold.
         Args:
             control_pts (jax.Array): Control points defining the diffeomorphism.
@@ -61,9 +61,9 @@ class Diffeomorphism(Manifold):
         obj.tree_unflatten_instance(aux_data, children)
         return obj
 
-    def initGroupStructure(self):
+    def initLDDMMStructure(self):
         """Initialize the group structure of the diffeomorphism manifold."""
-        self._group = Diffeomorphism.GroupStructure(self)
+        self._metric = self._group = Diffeomorphism.LDDMMStructure(self)
 
     def proj(self, p, X):
         return X
@@ -77,14 +77,61 @@ class Diffeomorphism(Manifold):
     def zerovec(self, X):
         return jnp.zeros_like(X)
 
-    class GroupStructure(LieGroup):
-        """Group structure for the diffeomorphism manifold."""
+    def kernel(self, p, q):
+        """ Reproducing kernel function inducing metric properties on vector fields. """
+        h = 1 / (2 * self._scale**2) # inverse kernel bandwidth
+        return jnp.exp(-jnp.sum((p - q) ** 2) * h)
+
+    class LDDMMStructure(LieGroup, Metric):
+        """Large deformation diffeomorphic metric mapping (LDDMM) structure."""
 
         def __init__(self, M: 'Diffeomorphism'):
             super().__init__(M)
 
         def __str__(self):
-            return "Group structure on diffeomorphism manifold"
+            return "LDDMM structure"
+
+        def typicaldist(self):
+            """Typical distance between two diffeomorphisms."""
+            return jnp.sqrt(self._M.dim) * self._M._scale
+
+        def inner(self, _, X, Y):
+            """
+            :param p: Not uses (vectors are supposed to be coded at identity)
+            :param X: first vector field (momentum)
+            :param Y: second vector field (momentum)
+            :return: inner product of two vector fields at identity
+            """
+            c = self._M._control_pts
+            return jnp.sum(Y * (LazyKernel(c, c, self._M.kernel) @ X))
+
+        def dist(self, p, q):
+            """
+            :param p:
+            :param q:
+            :return: linearized distance
+            """
+            return self.norm(None, (p-q))
+
+        def squared_dist(self, p, q):
+            """
+            :param p:
+            :param q:
+            :return: squared (linearized) distance
+            """
+            return self.inner(None, (p-q), (p-q))
+
+        def egrad2rgrad(self, p, X):
+            raise NotImplementedError("egrad2rgrad is not implemented for diffeomorphisms.")
+
+        def flat(self, p, X):
+            raise NotImplementedError("flat is not implemented for diffeomorphisms.")
+
+        def sharp(self, p, dX):
+            raise NotImplementedError("sharp is not implemented for diffeomorphisms.")
+
+        def adjJacobi(self, p, q, t, X):
+            raise NotImplementedError("Adjoint Jacobi field is not implemented for diffeomorphisms.")
 
         @property
         def identity(self):
@@ -145,18 +192,14 @@ class Diffeomorphism(Manifold):
             Returns:
                 jax.Array: Transformed points at times t."""
 
-            # kernel matrix
-            h = 1 / (2 * self._M._scale**2)  # inverse kernel bandwidth
-            gaussian = lambda a, b: jnp.exp(-jnp.sum((a - b) ** 2) * h)
-
             def F(y, t, *args):
                 """ODE function."""
                 v, c, p = y
 
-                p_dot = LazyKernel(p, c, gaussian) @ v
+                p_dot = LazyKernel(p, c, self._M.kernel) @ v
 
                 # Hamiltonian function
-                H = lambda v, c: .5 * jnp.sum(v * (LazyKernel(c, c, gaussian) @ v))
+                H = lambda v, c: .5 * jnp.sum(v * (LazyKernel(c, c, self._M.kernel) @ v))
                 Gv, Gc = jax.grad(H, argnums=(0,1))(v, c)
 
                 return -Gc, Gv, p_dot
