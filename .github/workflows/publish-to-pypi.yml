@@ -74,8 +74,13 @@ jobs:
       id-token: write  # IMPORTANT: mandatory for sigstore
 
     steps:
+    - uses: actions/checkout@v4
     - name: Upgrade GitHub CLI
       run: sudo apt-get update && sudo apt-get install --only-upgrade gh
+    - name: Set up Python for Sigstore
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
     - name: Download all the dists
       uses: actions/download-artifact@v4
       with:
